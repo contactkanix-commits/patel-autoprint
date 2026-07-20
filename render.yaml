@@ -1,0 +1,38 @@
+# Render deployment config for Patel AutoPrint
+# Free tier: web service (sleeps after 15 min idle) + free PostgreSQL (256 MB)
+
+services:
+  # --- PostgreSQL database (free tier) ---
+  - type: postgres
+    name: patel-autoprint-db
+    databaseName: patel_autoprint
+    user: patel
+    plan: free
+    ipAllowList: [] # empty = allow all (Render sets this automatically)
+
+  # --- Node.js backend + serves the built frontend ---
+  - type: web
+    name: patel-autoprint
+    runtime: node
+    plan: free
+    region: oregon # change if closer to you (frankfurt, singapore, oregon, virginia, ohio)
+    branch: main
+    rootDir: backend
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: patel-autoprint-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: FRONTEND_DIR
+        value: ../frontend/dist

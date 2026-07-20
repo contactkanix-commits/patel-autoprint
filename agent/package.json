@@ -1,0 +1,13 @@
+{
+  "name": "patel-print-agent",
+  "version": "1.0.0",
+  "description": "Print agent for Patel AutoPrint - connects to cloud server and prints locally",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "setup": "node index.js --setup"
+  },
+  "dependencies": {
+    "pdf-to-printer": "^5.8.0"
+  }
+}

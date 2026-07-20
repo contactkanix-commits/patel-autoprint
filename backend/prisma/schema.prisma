@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// CORE MODELS
+// ============================================
+
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  customers     Customer[]
+  orders        Order[]
+  printers      Printer[]
+  pricingRules  PricingRule[]
+  orderFiles    OrderFile[]
+  printJobs     PrintJob[]
+
+  @@map("shops")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  shopId       String
+  email        String
+  passwordHash String
+  name         String
+  role         String   @default("OPERATOR") // OWNER, MANAGER, OPERATOR, CUSTOMER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, email])
+  @@map("users")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  shopId    String
+  name      String
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shop   Shop    @relation(fields: [shopId], references: [id])
+  orders Order[]
+
+  @@map("customers")
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  token         Int?
+  customerId    String?
+  shopId        String
+  status        String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, REJECTED
+  paymentStatus String   @default("UNPAID")  // UNPAID, PAID, REFUNDED
+  paymentMethod String?
+  totalPrice    Float    @default(0)
+  discount      Float    @default(0)
+  tax           Float    @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  approvedAt    DateTime?
+  printedAt     DateTime?
+
+  shop      Shop        @relation(fields: [shopId], references: [id])
+  customer  Customer?   @relation(fields: [customerId], references: [id])
+  files     OrderFile[]
+  printJobs PrintJob[]
+
+  @@unique([shopId, token])
+  @@index([shopId, status])
+  @@index([shopId, token])
+  @@map("orders")
+}
+
+model OrderFile {
+  id            String   @id @default(uuid())
+  orderId       String
+  originalName  String
+  storagePath   String
+  fileType      String
+  size          Int
+  pageCount     Int      @default(0)
+  colorPageCount Int     @default(0)
+  orientation   String   @default("portrait")
+  settings      Json?
+  shopId        String
+
+  order    Order      @relation(fields: [orderId], references: [id])
+  shop     Shop       @relation(fields: [shopId], references: [id])
+  printJobs PrintJob[]
+
+  @@map("order_files")
+}
+
+model PrintJob {
+  id             String   @id @default(uuid())
+  orderId        String
+  fileId         String
+  sectionIndex   Int      @default(0)
+  pages          String   // JSON array of page numbers
+  colorMode      String   @default("auto")   // auto, bw, color
+  printStyle     String   @default("single") // single, duplex
+  paperSize      String   @default("A4")
+  pagesPerSheet  Int      @default(1)
+  flipDirection  String   @default("long-edge")
+  copies         Int      @default(1)
+  status         String   @default("PENDING") // PENDING, PROCESSING, PRINTING, COMPLETED, FAILED
+  assignedPrinter String?
+  shopId         String
+
+  order     Order     @relation(fields: [orderId], references: [id])
+  file      OrderFile @relation(fields: [fileId], references: [id])
+  shop      Shop      @relation(fields: [shopId], references: [id])
+
+  @@map("print_jobs")
+}
+
+model Printer {
+  id             String   @id @default(uuid())
+  name           String
+  ip             String?
+  paperSizes     Json     @default("[\"A4\"]")
+  colorSupport   Boolean  @default(false)
+  duplexSupport  Boolean  @default(false)
+  status         String   @default("ONLINE") // ONLINE, OFFLINE, PRINTING, ERROR
+  shopId         String
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@map("printers")
+}
+
+model PricingRule {
+  id              String   @id @default(uuid())
+  name            String
+  bwPerPage       Float    @default(1)   // ₹ per B&W page
+  colorPerPage    Float    @default(5)   // ₹ per color page (single)
+  colorDuplexPerPage Float @default(10)  // ₹ per color page (duplex)
+  taxRate         Float    @default(18)
+  shopId          String
+
+  shop Shop @relation(fields: [shopId], references: [id])
+
+  @@map("pricing_rules")
+}

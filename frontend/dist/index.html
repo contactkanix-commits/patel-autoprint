@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Patel AutoPrint</title>
+    <script>
+      window.__ERRORS = [];
+      window.onerror = function(msg, url, line, col, err) {
+        window.__ERRORS.push({ msg, url, line, col, err: err?.message });
+        var el = document.getElementById('root');
+        if (el && el.children.length === 0) {
+          el.innerHTML = '<div style="padding:40px;color:red;font-family:monospace"><h2>Runtime Error</h2><pre>' + msg + '</pre></div>';
+        }
+      };
+    </script>
+    <script type="module" crossorigin src="/assets/index-D7F4RiMR.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-B27U9w0H.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
