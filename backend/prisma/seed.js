@@ -90,8 +90,8 @@ async function main() {
 
   // Create pricing rules
   const pricingRules = [
-    { name: 'Standard B/W', bwRate: 2, colorRate: 10, duplexDiscount: 20, nupDiscount: 15, taxRate: 18 },
-    { name: 'Premium Color', bwRate: 5, colorRate: 15, duplexDiscount: 15, nupDiscount: 10, taxRate: 18 },
+    { name: 'Standard B/W', bwPerPage: 2, colorPerPage: 10, colorDuplexPerPage: 20, taxRate: 18 },
+    { name: 'Premium Color', bwPerPage: 5, colorPerPage: 15, colorDuplexPerPage: 30, taxRate: 18 },
   ];
 
   for (const rule of pricingRules) {

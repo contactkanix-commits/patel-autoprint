@@ -17,7 +17,7 @@ services:
     runtime: node
     plan: free
     region: oregon # change to frankfurt / singapore if closer to you
-    branch: master
+    branch: main
     rootDir: backend
     buildCommand: npm install && npx prisma generate
     startCommand: npm run start
