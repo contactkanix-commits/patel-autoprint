@@ -11,6 +11,10 @@ import {
   CircularProgress,
   Alert,
   Avatar,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { Save as SaveIcon, Upload as UploadIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
@@ -25,6 +29,9 @@ const defaultPricing = {
 export default function SettingsPage() {
   const [pricing, setPricing] = useState(defaultPricing);
   const [upiQrUrl, setUpiQrUrl] = useState('');
+  const [defaultBwPrinter, setDefaultBwPrinter] = useState('');
+  const [defaultColorPrinter, setDefaultColorPrinter] = useState('');
+  const [printers, setPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
@@ -32,6 +39,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSettings();
+    fetchPrinters();
   }, []);
 
   const fetchSettings = async () => {
@@ -40,6 +48,8 @@ export default function SettingsPage() {
       if (result.success && result.data) {
         setPricing({ ...defaultPricing, ...result.data });
         setUpiQrUrl(result.data.upiQrUrl || '');
+        setDefaultBwPrinter(result.data.defaultBwPrinter || '');
+        setDefaultColorPrinter(result.data.defaultColorPrinter || '');
       }
     } catch {
       // Use defaults
@@ -48,10 +58,21 @@ export default function SettingsPage() {
     }
   };
 
+  const fetchPrinters = async () => {
+    try {
+      const result = await api.get('/printers');
+      if (result.success) {
+        setPrinters(result.data?.printers || []);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.put('/settings/pricing', { ...pricing, upiQrUrl });
+      await api.put('/settings/pricing', { ...pricing, upiQrUrl, defaultBwPrinter, defaultColorPrinter });
       toast.success('Settings saved');
     } catch {
       toast.error('Failed to save settings');
@@ -152,6 +173,49 @@ export default function SettingsPage() {
           >
             {saving ? 'Saving...' : 'Save Pricing'}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ maxWidth: 600, mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>Default Printers</Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Select default printers. When approving orders from the queue, these will be pre-selected automatically.
+          </Typography>
+
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Default B/W Printer</InputLabel>
+                <Select
+                  value={defaultBwPrinter}
+                  label="Default B/W Printer"
+                  onChange={(e) => setDefaultBwPrinter(e.target.value)}
+                >
+                  <MenuItem value=""><em>None (auto-select)</em></MenuItem>
+                  {printers.filter((p) => !p.colorSupport).map((p) => (
+                    <MenuItem key={p.id} value={p.name}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Default Color Printer</InputLabel>
+                <Select
+                  value={defaultColorPrinter}
+                  label="Default Color Printer"
+                  onChange={(e) => setDefaultColorPrinter(e.target.value)}
+                >
+                  <MenuItem value=""><em>None (auto-select)</em></MenuItem>
+                  {printers.filter((p) => p.colorSupport).map((p) => (
+                    <MenuItem key={p.id} value={p.name}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
         </CardContent>
       </Card>
 

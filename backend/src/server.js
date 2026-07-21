@@ -1142,13 +1142,15 @@ app.get('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
       colorPerPage: pricing?.colorPerPage || 5,
       colorDuplexPerPage: pricing?.colorDuplexPerPage || 10,
       upiQrUrl: settings.upiQrUrl || '',
+      defaultBwPrinter: settings.defaultBwPrinter || '',
+      defaultColorPrinter: settings.defaultColorPrinter || '',
     },
   });
 }));
 
 app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => {
   const shopId = req.user.shopId;
-  const { bwPerPage, colorPerPage, colorDuplexPerPage, upiQrUrl } = req.body;
+  const { bwPerPage, colorPerPage, colorDuplexPerPage, upiQrUrl, defaultBwPrinter, defaultColorPrinter } = req.body;
 
   const existing = await prisma.pricingRule.findFirst({ where: { shopId } });
   if (existing) {
@@ -1162,11 +1164,11 @@ app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
     });
   }
 
-  if (upiQrUrl !== undefined) {
+  if (upiQrUrl !== undefined || defaultBwPrinter !== undefined || defaultColorPrinter !== undefined) {
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
     await prisma.shop.update({
       where: { id: shopId },
-      data: { settings: { ...(shop?.settings || {}), upiQrUrl } },
+      data: { settings: { ...(shop?.settings || {}), upiQrUrl, defaultBwPrinter, defaultColorPrinter } },
     });
   }
 

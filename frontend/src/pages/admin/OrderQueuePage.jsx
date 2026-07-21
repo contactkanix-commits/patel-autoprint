@@ -20,6 +20,10 @@ import {
   Chip,
   InputAdornment,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -49,6 +53,14 @@ export default function OrderQueuePage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const navigate = useNavigate();
+
+  // Print dialog state
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printOrderId, setPrintOrderId] = useState(null);
+  const [bwPrinter, setBwPrinter] = useState('');
+  const [colorPrinter, setColorPrinter] = useState('');
+  const [printers, setPrinters] = useState([]);
+  const [printDialogLoading, setPrintDialogLoading] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -91,6 +103,54 @@ export default function OrderQueuePage() {
     } catch {
       toast.error('Failed to reprint');
     }
+  };
+
+  // --- Print Dialog ---
+  const openPrintDialog = async (orderId) => {
+    setPrintOrderId(orderId);
+    setPrintDialogOpen(true);
+    setBwPrinter('');
+    setColorPrinter('');
+    setPrintDialogLoading(true);
+
+    try {
+      const [printersRes, settingsRes] = await Promise.all([
+        api.get('/printers'),
+        api.get('/settings/pricing'),
+      ]);
+      if (printersRes.success) {
+        setPrinters(printersRes.data?.printers || []);
+      }
+      if (settingsRes.success && settingsRes.data) {
+        setBwPrinter(settingsRes.data.defaultBwPrinter || '');
+        setColorPrinter(settingsRes.data.defaultColorPrinter || '');
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPrintDialogLoading(false);
+    }
+  };
+
+  const handlePrintConfirm = async () => {
+    if (!printOrderId) return;
+    try {
+      const body = { status: 'PRINTING' };
+      if (bwPrinter) body.bwPrinterName = bwPrinter;
+      if (colorPrinter) body.colorPrinterName = colorPrinter;
+      await api.put(`/admin/orders/${printOrderId}/status`, body);
+      toast.success('Order approved & sent to print');
+      setPrintDialogOpen(false);
+      setPrintOrderId(null);
+      fetchOrders();
+    } catch {
+      toast.error('Failed to send to print');
+    }
+  };
+
+  const closePrintDialog = () => {
+    setPrintDialogOpen(false);
+    setPrintOrderId(null);
   };
 
   return (
@@ -196,7 +256,7 @@ export default function OrderQueuePage() {
                         <IconButton
                           size="small"
                           color="success"
-                          onClick={() => handleStatusChange(order.id, 'PRINTING')}
+                          onClick={() => openPrintDialog(order.id)}
                           title="Approve & Print"
                         >
                           <ApproveIcon fontSize="small" />
@@ -215,7 +275,7 @@ export default function OrderQueuePage() {
                       <IconButton
                         size="small"
                         color="primary"
-                        onClick={() => handleStatusChange(order.id, 'PRINTING')}
+                        onClick={() => openPrintDialog(order.id)}
                         title="Start Printing"
                       >
                         <PrintIcon fontSize="small" />
@@ -254,6 +314,53 @@ export default function OrderQueuePage() {
         </TableContainer>
         </Box>
       )}
+
+      {/* Print Dialog — select printers inline, no page redirect */}
+      <Dialog open={printDialogOpen} onClose={closePrintDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>Select Printers</DialogTitle>
+        <DialogContent>
+          {printDialogLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>B/W Printer</InputLabel>
+                <Select
+                  value={bwPrinter}
+                  label="B/W Printer"
+                  onChange={(e) => setBwPrinter(e.target.value)}
+                >
+                  <MenuItem value=""><em>Auto (any B/W printer)</em></MenuItem>
+                  {printers.filter((p) => !p.colorSupport).map((p) => (
+                    <MenuItem key={p.id} value={p.name}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth size="small">
+                <InputLabel>Color Printer</InputLabel>
+                <Select
+                  value={colorPrinter}
+                  label="Color Printer"
+                  onChange={(e) => setColorPrinter(e.target.value)}
+                >
+                  <MenuItem value=""><em>Auto (any Color printer)</em></MenuItem>
+                  {printers.filter((p) => p.colorSupport).map((p) => (
+                    <MenuItem key={p.id} value={p.name}>{p.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closePrintDialog}>Cancel</Button>
+          <Button variant="contained" color="success" onClick={handlePrintConfirm} startIcon={<PrintIcon />}>
+            Print
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
