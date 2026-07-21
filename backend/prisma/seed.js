@@ -4,6 +4,13 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
+  // Skip seeding if data already exists (idempotent — safe to run on every restart)
+  const existingShops = await prisma.shop.count();
+  if (existingShops > 0) {
+    console.log('Database already seeded, skipping.');
+    return;
+  }
+
   console.log('Seeding database...');
 
   // Create a demo shop
