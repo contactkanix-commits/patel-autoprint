@@ -26,6 +26,10 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Print as PrintIcon,
+  NetworkCheck as NetworkCheckIcon,
+  Circle as CircleIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -123,65 +127,143 @@ export default function PrintersPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5">Printers</Typography>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PrintIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+          <Typography variant="h5" fontWeight="600">Printers</Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => handleOpenDialog()}
+          sx={{ borderRadius: 2, textTransform: 'none', px: 3 }}
+        >
           Add Printer
         </Button>
       </Box>
 
       {printers.length === 0 ? (
-        <Alert severity="info">No printers configured. Add a printer to get started.</Alert>
+        <Alert 
+          severity="info" 
+          sx={{ 
+            borderRadius: 2, 
+            '& .MuiAlert-icon': { fontSize: 40, mr: 1 } 
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <PrintIcon sx={{ mr: 1, fontSize: 32 }} />
+            No printers configured. Add a printer to get started.
+          </Box>
+        </Alert>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer 
+          component={Paper} 
+          sx={{ 
+            borderRadius: 2,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            overflow: 'hidden'
+          }}
+        >
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>IP Address</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="center">Color</TableCell>
-                <TableCell align="center">Duplex</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Name</TableCell>
+                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>IP Address</TableCell>
+                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Status</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Color</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Duplex</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {printers.map((printer) => (
-                <TableRow key={printer.id} hover>
+                <TableRow 
+                  key={printer.id} 
+                  hover={true}
+                  sx={{ 
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      bgcolor: 'action.hover',
+                      transform: 'translateX(4px)'
+                    }
+                  }}
+                >
                   <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <PrintIcon color="primary" />
-                      {printer.name}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <PrintIcon color="primary" sx={{ fontSize: 24 }} />
+                      <Typography variant="body1" fontWeight={500}>{printer.name}</Typography>
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace' }}>{printer.ip || '-'}</TableCell>
                   <TableCell>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        px: 1,
-                        py: 0.5,
-                        borderRadius: 1,
-                        bgcolor: printer.status === 'ONLINE' ? 'success.light' : 'error.light',
-                        color: printer.status === 'ONLINE' ? 'success.dark' : 'error.dark',
-                      }}
-                    >
-                      {printer.status || 'UNKNOWN'}
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <NetworkCheckIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>{printer.ip || '-'}</Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          minWidth: 80,
+                          height: 32,
+                          borderRadius: '20px',
+                          bgcolor: printer.status === 'ONLINE' ? 'success.light' : 'error.light',
+                          color: printer.status === 'ONLINE' ? 'success.dark' : 'error.dark',
+                          px: 2,
+                          fontWeight: 500,
+                          fontSize: 12,
+                        }}
+                      >
+                        {printer.status === 'ONLINE' && <CircleIcon sx={{ fontSize: 8, mr: 1 }} />}
+                        {printer.status || 'UNKNOWN'}
+                      </Box>
+                    </Box>
                   </TableCell>
                   <TableCell align="center">
-                    <Switch checked={printer.colorSupport} disabled size="small" />
+                    <Chip
+                      size="small"
+                      icon={printer.colorSupport ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
+                      label={printer.colorSupport ? 'Enabled' : 'Disabled'}
+                      color={printer.colorSupport ? 'success' : 'default'}
+                      sx={{ borderRadius: 12, fontWeight: 500 }}
+                    />
                   </TableCell>
                   <TableCell align="center">
-                    <Switch checked={printer.duplexSupport} disabled size="small" />
+                    <Chip
+                      size="small"
+                      icon={printer.duplexSupport ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
+                      label={printer.duplexSupport ? 'Enabled' : 'Disabled'}
+                      color={printer.duplexSupport ? 'success' : 'default'}
+                      sx={{ borderRadius: 12, fontWeight: 500 }}
+                    />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton size="small" onClick={() => handleOpenDialog(printer)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton size="small" color="error" onClick={() => handleDelete(printer)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
+                      <IconButton 
+                        size="small"
+                        onClick={() => handleOpenDialog(printer)}
+                        sx={{ 
+                          bgcolor: 'action.hover', 
+                          '&:hover': { bgcolor: 'primary.light', color: 'primary.main' }
+                        }}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton 
+                        size="small" 
+                        color="error" 
+                        onClick={() => handleDelete(printer)}
+                        sx={{ 
+                          bgcolor: 'action.hover',
+                          '&:hover': { bgcolor: 'error.light' }
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}

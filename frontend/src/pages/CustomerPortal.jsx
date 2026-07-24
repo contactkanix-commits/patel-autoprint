@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Container,
   Box,
@@ -26,6 +26,13 @@ import {
   Chip,
   useMediaQuery,
   useTheme,
+  Fade,
+  Slide,
+  Zoom,
+  Grow,
+  keyframes,
+  Snackbar,
+  InputAdornment,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -38,6 +45,19 @@ import {
   ContentCopy,
   Add,
   Remove,
+  Timer as TimerIcon,
+  Fingerprint as TokenIcon,
+  Verified as VerifiedIcon,
+  ContentCopy as CopyIcon,
+  Warning as WarningIcon,
+  ThumbUp as ThumbUpIcon,
+  LocalPrintshop as PrintIcon,
+  Description as DocIcon,
+  AttachFile as AttachIcon,
+  AccountCircle as AccountCircleIcon,
+  Phone as PhoneIcon,
+  Email as EmailIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -54,9 +74,35 @@ function isImageFile(file) {
   return /\.(jpg|jpeg|png|webp)$/.test(name);
 }
 
-function Step1Upload({ files, setFiles, customerInfo, setCustomerInfo }) {
+// Keyframe animations
+const pulseGlow = keyframes`
+  0%, 100% { box-shadow: 0 0 0 0 rgba(25, 118, 210, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(25, 118, 210, 0); }
+`;
+
+const bounceIn = keyframes`
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+`;
+
+const slideUp = keyframes`
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+`;
+
+const pulseRing = keyframes`
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2); opacity: 0; }
+`;
+
+const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
+  const [dragActive, setDragActive] = useState(false);
+  const uploadInputRef = useRef(null);
+
   const handleDrop = useCallback((e) => {
     e.preventDefault();
+    setDragActive(false);
     const droppedFiles = Array.from(e.dataTransfer.files);
     setFiles((prev) => [...prev, ...droppedFiles]);
   }, [setFiles]);
@@ -72,97 +118,185 @@ function Step1Upload({ files, setFiles, customerInfo, setCustomerInfo }) {
 
   return (
     <Box>
-      <Typography variant="subtitle1" fontWeight={600} gutterBottom>Upload Your Files</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <CloudUpload sx={{ fontSize: 32, color: 'primary.main' }} />
+          <Typography variant="h6" fontWeight={600}>Step 1: Upload Files</Typography>
+        </Box>
+        <Chip icon={<Info />} label="PDF, DOCX, PPTX, XLSX, JPG, PNG, WebP" variant="outlined" size="small" color="info" />
+      </Box>
+
       <Paper
         onDrop={handleDrop}
-        onDragOver={(e) => e.preventDefault()}
+        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+        onClick={() => uploadInputRef.current?.click()}
         sx={{
-          p: { xs: 2, sm: 4 },
+          p: { xs: 3, sm: 5 },
           textAlign: 'center',
-          border: '2px dashed #bdbdbd',
+          border: dragActive ? '2px solid' : '2px dashed',
+          borderColor: dragActive ? 'primary.main' : '#bdbdbd',
           cursor: 'pointer',
-          mb: 2,
+          mb: 3,
+          bgcolor: dragActive ? 'action.hover' : 'background.paper',
+          transition: 'all 0.3s ease',
+          transform: dragActive ? 'scale(1.02)' : 'scale(1)',
+          boxShadow: dragActive ? 6 : 1,
           '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
         }}
-        onClick={() => document.getElementById('file-input').click()}
       >
         <input
+          ref={uploadInputRef}
           id="file-input"
           type="file"
           multiple
           hidden
           onChange={handleFileInput}
-          accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png"
+          accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png,.webp"
         />
-        <CloudUpload sx={{ fontSize: { xs: 36, sm: 48 }, color: 'text.secondary', mb: 1 }} />
-        <Typography variant="body1" color="text.secondary" sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-          Drag & drop files here or click to browse
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          PDF, DOCX, PPTX, XLSX, JPG, PNG, WebP
-        </Typography>
+
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: { xs: 80, sm: 100 },
+              height: { xs: 80, sm: 100 },
+              borderRadius: '50%',
+              bgcolor: dragActive ? 'primary.light' : 'action.hover',
+              mb: 1,
+              transition: 'all 0.3s ease',
+              position: 'relative',
+            }}
+          >
+            <CloudUpload sx={{ fontSize: { xs: 40, sm: 56 }, color: dragActive ? 'primary.main' : 'text.secondary' }} />
+            {dragActive && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: -8,
+                  borderRadius: '50%',
+                  border: '2px solid',
+                  borderColor: 'primary.main',
+                  animation: `${pulseRing} 1.5s ease-out infinite`,
+                }}
+              />
+            )}
+          </Box>
+          <Typography variant="h6" color="text.primary" fontWeight={500}>
+            {dragActive ? 'Drop files here' : 'Drag & drop files here'}
+          </Typography>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 1 }}>
+            or <Box component="span" sx={{ color: 'primary.main', fontWeight: 500 }}>click to browse</Box>
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+            Supported: PDF, DOCX, PPTX, XLSX, JPG, PNG, WebP
+          </Typography>
+        </Box>
       </Paper>
 
       {files.length > 0 && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="caption" color="text.secondary">
-            {files.length} file(s) selected
-          </Typography>
-          {files.map((file, index) => (
-            <Paper key={index} sx={{ p: 1, mb: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="body2" sx={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', mr: 1 }}>
-                {file.name}
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                <Typography variant="caption" color="text.secondary">
-                  {(file.size / 1024).toFixed(0)}KB
-                </Typography>
-                <IconButton size="small" onClick={() => removeFile(index)}>
-                  <Delete fontSize="small" />
-                </IconButton>
-              </Box>
-            </Paper>
-          ))}
-        </Box>
+        <Fade in={true} timeout={500}>
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="subtitle2" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <DocIcon fontSize="small" color="primary" />
+              Uploaded Files ({files.length})
+            </Typography>
+            <Grid container spacing={2}>
+              {files.map((file, index) => (
+                <Grid item xs={12} sm={6} md={4} key={index}>
+                  <Paper
+                    elevation={2}
+                    sx={{
+                      p: 2,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 1,
+                      borderRadius: 2,
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        boxShadow: 4,
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Typography variant="body2" fontWeight={500} sx={{ flex: 1, mr: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {file.name}
+                      </Typography>
+                      <IconButton size="small" color="error" onClick={() => removeFile(index)} sx={{ opacity: 0.7, '&:hover': { opacity: 1 } }}>
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={isImageFile(file) ? 'Image' : file.name.split('.').pop()?.toUpperCase()}
+                        color={isImageFile(file) ? 'success' : 'default'}
+                        variant="filled"
+                        sx={{ fontSize: '0.7rem' }}
+                      />
+                    </Box>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </Box>
+        </Fade>
       )}
 
-      <Divider sx={{ my: 2 }} />
+      <Divider sx={{ my: 3 }} />
 
-      <Typography variant="subtitle1" fontWeight={600} gutterBottom>Customer Info</Typography>
-      <Grid container spacing={1.5}>
-        <Grid item xs={12} sm={6}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Your Name"
-            value={customerInfo.name}
-            onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-            required
-          />
+      <Box>
+        <Typography variant="subtitle1" fontWeight={600} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <AccountCircleIcon fontSize="small" color="primary" />
+          Customer Information
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Your Name"
+              value={customerInfo.name}
+              onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
+              required
+              InputProps={{ startAdornment: <InputAdornment position="start"><AccountCircleIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
+              placeholder="e.g., John Doe"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Phone Number"
+              value={customerInfo.phone}
+              onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
+              required
+              InputProps={{ startAdornment: <InputAdornment position="start"><PhoneIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
+              placeholder="e.g., +1234567890"
+            />
+          </Grid>
+          <Grid item xs={12}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Email (optional)"
+              value={customerInfo.email}
+              onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
+              InputProps={{ startAdornment: <InputAdornment position="start"><EmailIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
+              placeholder="your@email.com"
+            />
+          </Grid>
         </Grid>
-        <Grid item xs={12} sm={6}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Phone Number"
-            value={customerInfo.phone}
-            onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-            required
-          />
-        </Grid>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Email (optional)"
-            value={customerInfo.email}
-            onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-          />
-        </Grid>
-      </Grid>
+      </Box>
     </Box>
   );
-}
+};
 
 function Step2Configure({ files, fileSettings, setFileSettings }) {
   const [activeTab, setActiveTab] = useState(0);
