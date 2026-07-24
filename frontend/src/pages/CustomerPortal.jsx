@@ -123,7 +123,7 @@ const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
           <CloudUpload sx={{ fontSize: 32, color: 'primary.main' }} />
           <Typography variant="h6" fontWeight={600}>Step 1: Upload Files</Typography>
         </Box>
-        <Chip icon={<Info />} label="PDF, DOCX, PPTX, XLSX, JPG, PNG, WebP" variant="outlined" size="small" color="info" />
+        <Chip icon={<InfoIcon />} label="PDF, DOCX, PPTX, XLSX, JPG, PNG, WebP" variant="outlined" size="small" color="info" />
       </Box>
 
       <Paper
