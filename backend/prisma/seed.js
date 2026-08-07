@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 
 const prisma = new PrismaClient();
 
@@ -8,32 +9,24 @@ async function main() {
   const shops = await prisma.shop.findMany({ orderBy: { createdAt: 'asc' } });
   if (shops.length > 1) {
     console.log(`Found ${shops.length} shops. Merging into one...`);
-    // Keep the shop with the admin user; fallback to the first shop
     const adminUser = await prisma.user.findFirst({ where: { email: 'admin@patelautoprint.com' } });
     const keepShopId = adminUser ? adminUser.shopId : shops[0].id;
     const removeIds = shops.filter(s => s.id !== keepShopId).map(s => s.id);
 
-    // 1. Move users (skip if email already exists in target shop)
     const usersToMove = await prisma.user.findMany({ where: { shopId: { in: removeIds } } });
     for (const u of usersToMove) {
       const dup = await prisma.user.findUnique({ where: { shopId_email: { shopId: keepShopId, email: u.email } } });
       if (!dup) {
         await prisma.user.update({ where: { id: u.id }, data: { shopId: keepShopId } });
       } else {
-        await prisma.user.delete({ where: { id: u.id } }); // duplicate user, remove
+        await prisma.user.delete({ where: { id: u.id } });
       }
     }
 
-    // 2. Move customers
     await prisma.customer.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 3. Move printers
     await prisma.printer.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 4. Move pricing rules
     await prisma.pricingRule.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
 
-    // 5. Move orders — handle token uniqueness (shopId + token)
     const maxToken = await prisma.order.findFirst({ where: { shopId: keepShopId }, orderBy: { token: 'desc' } });
     let nextToken = (maxToken?.token || 0) + 1;
     for (const sid of removeIds) {
@@ -43,16 +36,13 @@ async function main() {
       }
     }
 
-    // 6. Move order files and print jobs (their parent orders are now in keepShopId)
     await prisma.orderFile.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
     await prisma.printJob.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 7. Delete empty shops
     await prisma.shop.deleteMany({ where: { id: { in: removeIds } } });
     console.log(`Merged into shop ${keepShopId}. Removed ${removeIds.length} duplicate(s).`);
   }
 
-  // Skip seeding if data already exists (idempotent — safe to run on every restart)
+  // Skip seeding if data already exists
   if (shops.length > 0) {
     console.log('Database already seeded, skipping.');
     return;
@@ -60,22 +50,72 @@ async function main() {
 
   console.log('Seeding database...');
 
-  // Create a demo shop
+  // Create default plans
+  const basicPlan = await prisma.plan.create({
+    data: {
+      name: 'Basic',
+      priceMonthly: 99900, // ₹999
+      priceYearly: 999900, // ₹9,999
+      maxOrders: 500,
+      maxPrinters: 2,
+      maxStaff: 3,
+      features: { whatsapp: false, analytics: true, api: false },
+    },
+  });
+
+  await prisma.plan.create({
+    data: {
+      name: 'Pro',
+      priceMonthly: 249900, // ₹2,499
+      priceYearly: 2499900, // ₹24,999
+      maxOrders: 2000,
+      maxPrinters: 5,
+      maxStaff: 10,
+      features: { whatsapp: true, analytics: true, api: true },
+    },
+  });
+
+  await prisma.plan.create({
+    data: {
+      name: 'Enterprise',
+      priceMonthly: 499900, // ₹4,999
+      priceYearly: 4999900, // ₹49,999
+      maxOrders: 99999,
+      maxPrinters: 99,
+      maxStaff: 99,
+      features: { whatsapp: true, analytics: true, api: true },
+    },
+  });
+
+  console.log('Plans created');
+
+  // Create demo shop
+  const activationKey = `PATEL-${uuidv4().substring(0, 8).toUpperCase()}`;
   const shop = await prisma.shop.create({
     data: {
       name: 'Patel AutoPrint',
-      settings: {
-        currency: 'INR',
-        timeZone: 'Asia/Kolkata',
-      },
+      ownerName: 'Mayank Patel',
+      mobile: '9876543210',
+      email: 'admin@patelautoprint.com',
+      address: '123 Print Street',
+      city: 'Ahmedabad',
+      state: 'Gujarat',
+      activationKey,
+      planId: basicPlan.id,
+      subscriptionStatus: 'ACTIVE',
+      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      isActivated: true,
+      activatedAt: new Date(),
+      settings: { currency: 'INR', timeZone: 'Asia/Kolkata' },
     },
   });
 
   console.log(`Shop created: ${shop.name} (${shop.id})`);
+  console.log(`Activation Key: ${activationKey}`);
 
   // Create shop owner
   const passwordHash = await bcrypt.hash('admin123', 10);
-  const owner = await prisma.user.create({
+  await prisma.user.create({
     data: {
       shopId: shop.id,
       name: 'Mayank Patel',
@@ -85,11 +125,9 @@ async function main() {
     },
   });
 
-  console.log(`Owner created: ${owner.name} (${owner.email})`);
-
   // Create manager
   const managerHash = await bcrypt.hash('manager123', 10);
-  const manager = await prisma.user.create({
+  await prisma.user.create({
     data: {
       shopId: shop.id,
       name: 'Rahul Sharma',
@@ -99,11 +137,9 @@ async function main() {
     },
   });
 
-  console.log(`Manager created: ${manager.name}`);
-
   // Create operator
   const operatorHash = await bcrypt.hash('operator123', 10);
-  const operator = await prisma.user.create({
+  await prisma.user.create({
     data: {
       shopId: shop.id,
       name: 'Priya Kumar',
@@ -113,7 +149,7 @@ async function main() {
     },
   });
 
-  console.log(`Operator created: ${operator.name}`);
+  console.log('Users created');
 
   // Create printers
   await prisma.printer.create({
@@ -125,6 +161,8 @@ async function main() {
       colorSupport: false,
       duplexSupport: true,
       status: 'ONLINE',
+      isDefault: true,
+      priority: 1,
     },
   });
 
@@ -137,25 +175,23 @@ async function main() {
       colorSupport: true,
       duplexSupport: true,
       status: 'ONLINE',
+      priority: 2,
     },
   });
 
   console.log('Printers created');
 
-  // Create pricing rules
-  const pricingRules = [
-    { name: 'Standard B/W', bwPerPage: 2, colorPerPage: 10, colorDuplexPerPage: 20, taxRate: 18 },
-    { name: 'Premium Color', bwPerPage: 5, colorPerPage: 15, colorDuplexPerPage: 30, taxRate: 18 },
-  ];
-
-  for (const rule of pricingRules) {
-    await prisma.pricingRule.create({
-      data: {
-        shopId: shop.id,
-        ...rule,
-      },
-    });
-  }
+  // Create pricing rule
+  await prisma.pricingRule.create({
+    data: {
+      shopId: shop.id,
+      name: 'Default',
+      bwPerPage: 2,
+      colorPerPage: 10,
+      colorDuplexPerPage: 20,
+      taxRate: 18,
+    },
+  });
 
   console.log('Pricing rules created');
 
@@ -177,11 +213,25 @@ async function main() {
 
   console.log('Customers created');
 
+  // Create default agent
+  await prisma.agent.create({
+    data: {
+      shopId: shop.id,
+      machineName: 'COUNTER-1',
+      machineId: uuidv4(),
+      apiKey: uuidv4().replace(/-/g, '') + uuidv4().replace(/-/g, ''),
+      isActive: true,
+    },
+  });
+
+  console.log('Default agent created');
+
   console.log('\n✓ Database seeded successfully!');
   console.log('\nDemo credentials:');
   console.log('  Owner:    admin@patelautoprint.com / admin123');
   console.log('  Manager:  manager@patelautoprint.com / manager123');
   console.log('  Operator: operator@patelautoprint.com / operator123');
+  console.log(`\n  Shop Activation Key: ${activationKey}`);
 }
 
 main()
