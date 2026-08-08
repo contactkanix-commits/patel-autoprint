@@ -34,7 +34,7 @@ import {
   Print as PrintIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-import api from '../../services/api';
+import api from '../../api';
 import OrderStatusBadge from '../../components/OrderStatusBadge';
 
 const statusFilters = [

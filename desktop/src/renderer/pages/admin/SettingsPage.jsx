@@ -18,7 +18,7 @@ import {
 } from '@mui/material';
 import { Save as SaveIcon, Upload as UploadIcon } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-import api from '../../services/api';
+import api from '../../api';
 
 const defaultPricing = {
   bwPerPage: 1,

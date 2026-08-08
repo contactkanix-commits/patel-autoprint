@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import api from './api';
 
 const AuthContext = createContext(null);
 
@@ -47,19 +47,6 @@ export function AuthProvider({ children }) {
     throw new Error(result.message || 'Login failed');
   };
 
-  const register = async (data) => {
-    const result = await api.post('/auth/register', data);
-    if (result.success) {
-      const { token: newToken, user: userData } = result.data;
-      setToken(newToken);
-      setUser(userData);
-      localStorage.setItem('token', newToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      return userData;
-    }
-    throw new Error(result.message || 'Registration failed');
-  };
-
   const logout = () => {
     setToken(null);
     setUser(null);
@@ -74,7 +61,6 @@ export function AuthProvider({ children }) {
         token,
         loading,
         login,
-        register,
         logout,
         isAuthenticated: !!token && !!user,
       }}

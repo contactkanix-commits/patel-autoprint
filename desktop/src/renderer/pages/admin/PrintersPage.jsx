@@ -33,7 +33,7 @@ import {
   Cancel as CancelIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
-import api from '../../services/api';
+import api from '../../api';
 
 const emptyPrinter = { name: '', ip: '', colorSupport: false, duplexSupport: false };
 
@@ -144,11 +144,11 @@ export default function PrintersPage() {
       </Box>
 
       {printers.length === 0 ? (
-        <Alert 
-          severity="info" 
-          sx={{ 
-            borderRadius: 2, 
-            '& .MuiAlert-icon': { fontSize: 40, mr: 1 } 
+        <Alert
+          severity="info"
+          sx={{
+            borderRadius: 2,
+            '& .MuiAlert-icon': { fontSize: 40, mr: 1 }
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -157,9 +157,9 @@ export default function PrintersPage() {
           </Box>
         </Alert>
       ) : (
-        <TableContainer 
-          component={Paper} 
-          sx={{ 
+        <TableContainer
+          component={Paper}
+          sx={{
             borderRadius: 2,
             boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
             overflow: 'hidden'
@@ -178,10 +178,10 @@ export default function PrintersPage() {
             </TableHead>
             <TableBody>
               {printers.map((printer) => (
-                <TableRow 
-                  key={printer.id} 
+                <TableRow
+                  key={printer.id}
                   hover={true}
-                  sx={{ 
+                  sx={{
                     transition: 'all 0.2s ease',
                     '&:hover': {
                       bgcolor: 'action.hover',
@@ -243,21 +243,21 @@ export default function PrintersPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                      <IconButton 
+                      <IconButton
                         size="small"
                         onClick={() => handleOpenDialog(printer)}
-                        sx={{ 
-                          bgcolor: 'action.hover', 
+                        sx={{
+                          bgcolor: 'action.hover',
                           '&:hover': { bgcolor: 'primary.light', color: 'primary.main' }
                         }}
                       >
                         <EditIcon fontSize="small" />
                       </IconButton>
-                      <IconButton 
-                        size="small" 
-                        color="error" 
+                      <IconButton
+                        size="small"
+                        color="error"
                         onClick={() => handleDelete(printer)}
-                        sx={{ 
+                        sx={{
                           bgcolor: 'action.hover',
                           '&:hover': { bgcolor: 'error.light' }
                         }}

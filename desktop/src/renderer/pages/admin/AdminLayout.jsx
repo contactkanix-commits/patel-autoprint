@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -11,24 +10,18 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  IconButton,
-  Button,
   Divider,
   Avatar,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
 import {
-  Menu as MenuIcon,
   Dashboard as DashboardIcon,
   ShoppingCart as OrdersIcon,
   Print as PrintIcon,
   Settings as SettingsIcon,
-  Storefront as StoreIcon,
   Logout as LogoutIcon,
   Assessment as AssessmentIcon,
 } from '@mui/icons-material';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../AuthContext';
 
 const DRAWER_WIDTH = 240;
 
@@ -40,12 +33,9 @@ const menuItems = [
 ];
 
 export default function AdminLayout() {
-  const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
   const handleLogout = () => {
     logout();
@@ -58,9 +48,9 @@ export default function AdminLayout() {
         <Avatar sx={{ bgcolor: 'primary.main' }}>
           {user?.name?.[0]?.toUpperCase() || 'A'}
         </Avatar>
-        <Box>
-          <Typography variant="subtitle2">{user?.name || 'Admin'}</Typography>
-          <Typography variant="caption" color="text.secondary">
+        <Box sx={{ overflow: 'hidden' }}>
+          <Typography variant="subtitle2" noWrap>{user?.name || 'Admin'}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
             {user?.email || 'admin@patel.com'}
           </Typography>
         </Box>
@@ -71,10 +61,7 @@ export default function AdminLayout() {
           <ListItem key={item.text} disablePadding>
             <ListItemButton
               selected={location.pathname === item.path}
-              onClick={() => {
-                navigate(item.path);
-                if (isMobile) setMobileOpen(false);
-              }}
+              onClick={() => navigate(item.path)}
             >
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.text} />
@@ -99,51 +86,20 @@ export default function AdminLayout() {
       <AppBar
         position="fixed"
         sx={{
-          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
-          ml: { md: `${DRAWER_WIDTH}px` },
+          width: `calc(100% - ${DRAWER_WIDTH}px)`,
+          ml: `${DRAWER_WIDTH}px`,
         }}
       >
         <Toolbar>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            sx={{ mr: 2, display: { md: 'none' } }}
-          >
-            <MenuIcon />
-          </IconButton>
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             Patel AutoPrint - Admin
           </Typography>
-          <Button
-            color="inherit"
-            startIcon={<StoreIcon />}
-            onClick={() => navigate('/')}
-          >
-            View Store
-          </Button>
         </Toolbar>
       </AppBar>
 
-      {/* Mobile drawer */}
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-        ModalProps={{ keepMounted: true }}
-        sx={{
-          display: { xs: 'block', md: 'none' },
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH },
-        }}
-      >
-        {drawer}
-      </Drawer>
-
-      {/* Desktop drawer */}
       <Drawer
         variant="permanent"
         sx={{
-          display: { xs: 'none', md: 'block' },
           '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
         }}
         open
@@ -157,7 +113,7 @@ export default function AdminLayout() {
           flexGrow: 1,
           minWidth: 0,
           p: { xs: 2, sm: 3 },
-          width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          width: `calc(100% - ${DRAWER_WIDTH}px)`,
           mt: '64px',
           minHeight: 'calc(100vh - 64px)',
         }}

@@ -22,7 +22,7 @@ import {
   CheckCircle as CompletedIcon,
   AttachMoney as RevenueIcon,
 } from '@mui/icons-material';
-import api from '../../services/api';
+import api from '../../api';
 import OrderStatusBadge from '../../components/OrderStatusBadge';
 
 function StatCard({ title, value, icon, color }) {

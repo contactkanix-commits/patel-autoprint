@@ -1,12 +1,12 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { getApiUrl } from './settings';
 
-const api = axios.create({
-  baseURL: '/api',
-});
+const api = axios.create();
 
 api.interceptors.request.use(
   (config) => {
+    config.baseURL = `${getApiUrl()}/api`;
     const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -23,10 +23,13 @@ api.interceptors.response.use(
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.href = '/';
+        window.location.hash = '#/login';
         toast.error('Session expired. Please login again.');
       } else {
-        const message = error.response.data?.message || error.response.data?.error || 'An error occurred';
+        const message =
+          error.response.data?.message ||
+          error.response.data?.error ||
+          'An error occurred';
         toast.error(message);
       }
       return Promise.reject(error.response.data);

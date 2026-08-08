@@ -1,21 +1,22 @@
 import { useState } from 'react';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Box,
   TextField,
   Button,
   Typography,
-  Link,
   Alert,
   Paper,
   Avatar,
 } from '@mui/material';
 import { LockOutlined } from '@mui/icons-material';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../AuthContext';
+import { getApiUrl, setApiUrl } from '../settings';
 import toast from 'react-hot-toast';
 
 export default function LoginPage() {
+  const [apiUrl, setApiUrlState] = useState(getApiUrl());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,6 +29,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
+      setApiUrl(apiUrl);
       await login(email, password);
       toast.success('Login successful!');
       navigate('/admin');
@@ -47,11 +49,23 @@ export default function LoginPage() {
               <LockOutlined />
             </Avatar>
             <Typography component="h1" variant="h5">
-              Admin Login
+              Patel AutoPrint Admin
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              Sign in to manage orders, printers, and pricing
             </Typography>
           </Box>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              label="API URL"
+              value={apiUrl}
+              onChange={(e) => setApiUrlState(e.target.value)}
+              margin="normal"
+              placeholder="https://patel-autoprint.onrender.com"
+              autoFocus
+            />
             <TextField
               fullWidth
               label="Email"
@@ -60,7 +74,6 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               margin="normal"
               required
-              autoFocus
             />
             <TextField
               fullWidth
@@ -75,21 +88,11 @@ export default function LoginPage() {
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2 }}
+              sx={{ mt: 3, mb: 1 }}
               disabled={loading}
             >
               {loading ? 'Signing in...' : 'Sign In'}
             </Button>
-            <Box sx={{ textAlign: 'center' }}>
-              <Link component={RouterLink} to="/register" variant="body2">
-                Don't have an account? Register
-              </Link>
-            </Box>
-            <Box sx={{ textAlign: 'center', mt: 1 }}>
-              <Link component={RouterLink} to="/" variant="body2">
-                Back to Store
-              </Link>
-            </Box>
           </Box>
         </Paper>
       </Box>
