@@ -179,7 +179,7 @@ const Layout: React.FC = () => {
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
         <MenuItem onClick={handleMenuClose}><Person /> Profile</MenuItem>
-        <MenuItem onClick={handleMenuClose}><Settings /> Settings</MenuItem>
+        <MenuItem onClick={() => { handleMenuClose(); navigate('/settings'); }}><SettingsIcon /> Settings</MenuItem>
         <Divider />
         <MenuItem onClick={handleLogout}><Logout /> Logout</MenuItem>
       </Menu>
