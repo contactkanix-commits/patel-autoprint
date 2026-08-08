@@ -736,122 +736,47 @@ function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadin
 }
 
 function Step4Confirmation({ order }) {
-  const [tokenCopied, setTokenCopied] = useState(false);
-  const [idCopied, setIdCopied] = useState(false);
-
-  const copyToken = () => {
-    navigator.clipboard.writeText(String(order.token));
-    setTokenCopied(true);
-    toast.success('Token number copied!');
-    setTimeout(() => setTokenCopied(false), 2000);
-  };
+  const [copied, setCopied] = useState(false);
 
   const copyOrderId = () => {
     navigator.clipboard.writeText(order.id);
-    setIdCopied(true);
+    setCopied(true);
     toast.success('Order ID copied!');
-    setTimeout(() => setIdCopied(false), 2000);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <Box sx={{ textAlign: 'center', py: { xs: 2, sm: 4 } }}>
       <CheckCircle sx={{ fontSize: { xs: 56, sm: 80 }, color: 'success.main', mb: 1 }} />
-      <Typography variant="h6" gutterBottom>Order Placed Successfully!</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="h6" gutterBottom>Order Placed!</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Your order has been received and is being processed.
       </Typography>
 
-      {/* TOKEN CARD - HIGH VISIBILITY */}
-      <Card 
-        variant="outlined" 
-        sx={{ 
-          maxWidth: 400, 
-          mx: 'auto', 
-          mb: 3,
-          border: '3px solid',
-          borderColor: 'primary.main',
-          borderRadius: 3,
-          boxShadow: '0 8px 24px rgba(25, 118, 210, 0.15)',
-          position: 'relative',
-          overflow: 'visible',
-        }}
-      >
-        <CardContent sx={{ p: 3, '&:last-child': { pb: 3 } }}>
-          <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 1, fontWeight: 600 }}>
-            YOUR TOKEN NUMBER
-          </Typography>
-          <Typography 
-            variant="h2" 
-            sx={{ 
-              fontWeight: 800, 
-              color: 'primary.main',
-              fontSize: { xs: '3rem', sm: '4rem' },
-              my: 1,
-            }}
-          >
+      <Card variant="outlined" sx={{ maxWidth: 360, mx: 'auto', mb: 2 }}>
+        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+          <Typography variant="h3" sx={{ fontWeight: 700, color: 'primary.main' }}>
             #{order.token || '-'}
           </Typography>
-          
-          <Chip 
-            label={order.status === 'APPROVED' ? 'Approved' : 'Pending'}
-            color={order.status === 'APPROVED' ? 'success' : 'warning'} 
-            size="small" 
-            sx={{ mb: 2 }}
-          />
-          
-          {/* Copy Token Button */}
-          <Button
-            fullWidth
-            variant="contained"
-            color={tokenCopied ? 'success' : 'primary'}
-            startIcon={tokenCopied ? <CheckCircle /> : <ContentCopy />}
-            onClick={copyToken}
-            sx={{ mb: 2, py: 1.5, textTransform: 'none', fontWeight: 600 }}
-          >
-            {tokenCopied ? 'Copied!' : 'Copy Token Number'}
-          </Button>
-
-          <Divider sx={{ my: 2 }} />
-
-          {/* Order ID Section */}
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            Order ID (for tracking)
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-            <Typography 
-              variant="body2" 
-              sx={{ 
-                fontFamily: 'monospace', 
-                fontSize: 11, 
-                wordBreak: 'break-all',
-                color: 'text.secondary'
-              }}
-            >
-              {order.id}
-            </Typography>
-            <IconButton onClick={copyOrderId} size="small">
-              {idCopied ? <CheckCircle fontSize="small" color="success" /> : <ContentCopy fontSize="small" />}
-            </IconButton>
+          <Typography variant="caption" color="text.secondary">Your Token Number</Typography>
+          <Chip label={order.status === 'APPROVED' ? 'Approved ✅' : 'Pending ⏳'}
+            color={order.status === 'APPROVED' ? 'success' : 'warning'} size="small" sx={{ mt: 1 }} />
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" color="text.secondary">Order ID</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>
+                {order.id}
+              </Typography>
+              <IconButton onClick={copyOrderId} size="small">
+                {copied ? <CheckCircle fontSize="small" color="success" /> : <ContentCopy fontSize="small" />}
+              </IconButton>
+            </Box>
           </Box>
         </CardContent>
       </Card>
 
-      {/* REMINDER */}
-      <Alert 
-        severity="warning" 
-        sx={{ 
-          maxWidth: 400, 
-          mx: 'auto',
-          borderRadius: 2,
-          '& .MuiAlert-icon': { fontSize: 28 }
-        }}
-      >
-        <Typography variant="body2" fontWeight={600}>
-          ⚠️ Remember your token number <strong>#{order.token}</strong>
-        </Typography>
-        <Typography variant="caption" display="block">
-          You'll need this to collect your prints.
-        </Typography>
+      <Alert severity="info" sx={{ maxWidth: 360, mx: 'auto' }}>
+        Save your Order ID to track status.
       </Alert>
     </Box>
   );

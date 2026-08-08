@@ -12,114 +12,21 @@ datasource db {
 // ============================================
 
 model Shop {
-  id              String   @id @default(cuid())
-  name            String
-  ownerName       String   @default("")
-  mobile          String   @default("")
-  email           String?
-  address         String?
-  city            String?
-  state           String?
-  gstNumber       String?
-  
-  // Activation
-  activationKey   String   @unique @default("")
-  isActivated     Boolean  @default(false)
-  activatedAt     DateTime?
-  
-  // Branding
-  primaryColor    String   @default("#1976d2")
-  
-  // Subscription
-  planId          String?
-  plan            Plan?    @relation(fields: [planId], references: [id])
-  subscriptionStatus String @default("TRIAL") // TRIAL, ACTIVE, EXPIRED, SUSPENDED
-  trialEndsAt     DateTime?
-  subscriptionEndsAt DateTime?
-  
-  // Settings (stored as JSON for flexibility)
-  settings        Json?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users           User[]
-  customers       Customer[]
-  orders          Order[]
-  printers        Printer[]
-  pricingRules    PricingRule[]
-  orderFiles      OrderFile[]
-  printJobs       PrintJob[]
-  agents          Agent[]
-  notifications   Notification[]
-  whatsappSession WhatsAppSession?
+  users         User[]
+  customers     Customer[]
+  orders        Order[]
+  printers      Printer[]
+  pricingRules  PricingRule[]
+  orderFiles    OrderFile[]
+  printJobs     PrintJob[]
 
   @@map("shops")
-  @@index([activationKey])
-  @@index([subscriptionStatus])
-}
-
-model Plan {
-  id              String   @id @default(cuid())
-  name            String   @unique // "Basic", "Pro", "Enterprise"
-  priceMonthly   Int      @default(0) // in paise (₹999 = 99900)
-  priceYearly    Int      @default(0)
-  maxOrders      Int      @default(100) // per month
-  maxPrinters    Int      @default(2)
-  maxStaff       Int      @default(3)
-  features       Json     @default("{}") // { whatsapp: true, analytics: true, api: false }
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  
-  shops          Shop[]
-}
-
-model Agent {
-  id              String   @id @default(cuid())
-  shopId          String
-  machineName     String   @default("COUNTER-1")
-  machineId       String   @unique // UUID generated on install
-  apiKey          String   @unique @default("")
-  version         String   @default("1.0.0")
-  isActive        Boolean  @default(true)
-  lastHeartbeatAt DateTime?
-  ipAddress       String?
-  osInfo          String?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
-  
-  @@index([shopId])
-  @@index([machineId])
-  @@index([apiKey])
-}
-
-model Notification {
-  id              String   @id @default(cuid())
-  shopId          String
-  type            String   // order.new, printer.offline, payment.received, agent.disconnected
-  title           String
-  message         String
-  data            Json?
-  isRead          Boolean  @default(false)
-  readAt          DateTime?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
-  
-  @@index([shopId, isRead])
-}
-
-model WhatsAppSession {
-  id              String   @id @default(cuid())
-  shopId          String   @unique
-  phoneNumber     String?
-  isConnected     Boolean  @default(false)
-  sessionData     Json?
-  lastConnectedAt DateTime?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
 }
 
 model User {
@@ -154,36 +61,30 @@ model Customer {
 }
 
 model Order {
-  id              String   @id @default(cuid())
-  token           Int?
-  customerId      String?
-  shopId          String
-  status          String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, CANCELLED, FAILED
-  paymentStatus   String   @default("UNPAID")  // UNPAID, PAID, REFUNDED
-  paymentMethod   String?  // cash, upi, card, online
-  paymentRef      String?  // UPI ref, transaction ID
-  subtotal        Float    @default(0)
-  tax             Float    @default(0)
-  discount        Float    @default(0)
-  total           Float    @default(0)
-  customerNotes   String?
-  adminNotes      String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  approvedAt      DateTime?
-  printingAt      DateTime?
-  completedAt     DateTime?
-  cancelledAt     DateTime?
+  id            String   @id @default(uuid())
+  token         Int?
+  customerId    String?
+  shopId        String
+  status        String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, REJECTED
+  paymentStatus String   @default("UNPAID")  // UNPAID, PAID, REFUNDED
+  paymentMethod String?
+  totalPrice    Float    @default(0)
+  discount      Float    @default(0)
+  tax           Float    @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  approvedAt    DateTime?
+  printedAt     DateTime?
 
-  shop            Shop        @relation(fields: [shopId], references: [id])
-  customer        Customer?   @relation(fields: [customerId], references: [id])
-  files           OrderFile[]
-  printJobs       PrintJob[]
+  shop      Shop        @relation(fields: [shopId], references: [id])
+  customer  Customer?   @relation(fields: [customerId], references: [id])
+  files     OrderFile[]
+  printJobs PrintJob[]
 
   @@unique([shopId, token])
   @@index([shopId, status])
   @@index([shopId, token])
-  @@index([shopId, createdAt])
   @@map("orders")
 }
 
@@ -208,72 +109,40 @@ model OrderFile {
 }
 
 model PrintJob {
-  id              String   @id @default(cuid())
-  orderId         String
-  fileId          String
-  printerId       String?
-  shopId          String?
-  sectionIndex    Int      @default(0)
-  pages           String   // JSON array of page numbers
-  colorMode       String   @default("bw")   // bw, color, auto
-  printStyle      String   @default("single") // single, duplex
-  paperSize       String   @default("A4")
-  pagesPerSheet   Int      @default(1)
-  flipDirection   String   @default("long-edge")
-  copies          Int      @default(1)
-  status          String   @default("PENDING") // PENDING, READY, DOWNLOADING, PRINTING, COMPLETED, FAILED, CANCELLED
-  errorMessage    String?
-  
-  // Agent tracking
-  downloadedAt    DateTime?
-  printedAt       DateTime?
-  agentMachineId  String?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt @default(now())
+  id             String   @id @default(uuid())
+  orderId        String
+  fileId         String
+  sectionIndex   Int      @default(0)
+  pages          String   // JSON array of page numbers
+  colorMode      String   @default("auto")   // auto, bw, color
+  printStyle     String   @default("single") // single, duplex
+  paperSize      String   @default("A4")
+  pagesPerSheet  Int      @default(1)
+  flipDirection  String   @default("long-edge")
+  copies         Int      @default(1)
+  status         String   @default("PENDING") // PENDING, PROCESSING, PRINTING, COMPLETED, FAILED
+  assignedPrinter String?
+  shopId         String
 
-  order           Order     @relation(fields: [orderId], references: [id])
-  file            OrderFile @relation(fields: [fileId], references: [id])
-  printer         Printer?  @relation(fields: [printerId], references: [id])
-  shop            Shop?     @relation(fields: [shopId], references: [id])
+  order     Order     @relation(fields: [orderId], references: [id])
+  file      OrderFile @relation(fields: [fileId], references: [id])
+  shop      Shop      @relation(fields: [shopId], references: [id])
 
-  @@index([orderId])
-  @@index([shopId, status])
-  @@index([printerId])
   @@map("print_jobs")
 }
 
 model Printer {
-  id              String   @id @default(cuid())
-  shopId          String
-  name            String
-  ip              String?
-  port            Int      @default(9100)
-  model           String?
-  
-  // Capabilities
-  colorSupport    Boolean  @default(false)
-  duplexSupport   Boolean  @default(false)
-  paperSizes      Json     @default("[\"A4\"]")
-  
-  // Settings
-  status          String   @default("ONLINE") // ONLINE, OFFLINE, PRINTING, ERROR, PAUSED, LOW_TONER
-  isDefault       Boolean  @default(false)
-  priority        Int      @default(0) // Higher = preferred
-  
-  // Counters
-  totalPrints     Int      @default(0)
-  totalPages      Int      @default(0)
-  lastPrintAt     DateTime?
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt @default(now())
+  id             String   @id @default(uuid())
+  name           String
+  ip             String?
+  paperSizes     Json     @default("[\"A4\"]")
+  colorSupport   Boolean  @default(false)
+  duplexSupport  Boolean  @default(false)
+  status         String   @default("ONLINE") // ONLINE, OFFLINE, PRINTING, ERROR
+  shopId         String
 
-  shop            Shop      @relation(fields: [shopId], references: [id])
-  printJobs       PrintJob[]
+  shop Shop @relation(fields: [shopId], references: [id])
 
-  @@index([shopId])
-  @@index([status])
   @@map("printers")
 }
 
