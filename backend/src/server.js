@@ -1804,8 +1804,8 @@ app.get('/api/admin/queue', authenticate, asyncHandler(async (req, res) => {
     ...(search ? {
       OR: [
         { token: isNaN(Number(search)) ? undefined : Number(search) },
-        { customer: { name: { contains: search as string, mode: 'insensitive' } } },
-        { customer: { phone: { contains: search as string } } },
+        { customer: { name: { contains: String(search), mode: 'insensitive' } } },
+        { customer: { phone: { contains: String(search) } } },
       ].filter(Boolean),
     } : {}),
   };

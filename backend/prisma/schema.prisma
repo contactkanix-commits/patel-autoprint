@@ -122,69 +122,6 @@ model WhatsAppSession {
   shop            Shop     @relation(fields: [shopId], references: [id])
 }
 
-model Plan {
-  id              String   @id @default(cuid())
-  name            String   @unique // "Basic", "Pro", "Enterprise"
-  priceMonthly   Int      @default(0) // in paise (₹999 = 99900)
-  priceYearly    Int      @default(0)
-  maxOrders      Int      @default(100) // per month
-  maxPrinters    Int      @default(2)
-  maxStaff       Int      @default(3)
-  features       Json     @default("{}") // { whatsapp: true, analytics: true, api: false }
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  
-  shops          Shop[]
-}
-
-model Agent {
-  id              String   @id @default(cuid())
-  shopId          String
-  machineName     String   @default("COUNTER-1")
-  machineId       String   @unique // UUID generated on install
-  apiKey          String   @unique @default("")
-  version         String   @default("1.0.0")
-  isActive        Boolean  @default(true)
-  lastHeartbeatAt DateTime?
-  ipAddress       String?
-  osInfo          String?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
-  
-  @@index([shopId])
-  @@index([machineId])
-  @@index([apiKey])
-}
-
-model Notification {
-  id              String   @id @default(cuid())
-  shopId          String
-  type            String   // order.new, printer.offline, payment.received, agent.disconnected
-  title           String
-  message         String
-  data            Json?
-  isRead          Boolean  @default(false)
-  readAt          DateTime?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
-  
-  @@index([shopId, isRead])
-}
-
-model WhatsAppSession {
-  id              String   @id @default(cuid())
-  shopId          String   @unique
-  phoneNumber     String?
-  isConnected     Boolean  @default(false)
-  sessionData     Json?
-  lastConnectedAt DateTime?
-  createdAt       DateTime @default(now())
-  
-  shop            Shop     @relation(fields: [shopId], references: [id])
-}
-
 model User {
   id           String   @id @default(uuid())
   shopId       String
@@ -275,6 +212,7 @@ model PrintJob {
   orderId         String
   fileId          String
   printerId       String?
+  shopId          String
   sectionIndex    Int      @default(0)
   pages           String   // JSON array of page numbers
   colorMode       String   @default("bw")   // bw, color, auto
