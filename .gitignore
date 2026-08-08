@@ -53,6 +53,11 @@ agent/print-cache/
 cloudflared.exe
 *.exe
 
+# Desktop build output
+desktop/dist-electron/
+desktop/dist/
+desktop/node_modules/
+
 # OS / editor
 .vscode/
 .idea/

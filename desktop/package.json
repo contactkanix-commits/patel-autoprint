@@ -1,0 +1,73 @@
+{
+  "name": "patel-autoprint-desktop",
+  "version": "1.0.0",
+  "description": "Patel AutoPrint Desktop Agent - XeroBot style print shop management",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -w -p tsconfig.main.json",
+    "build": "npm run build:renderer && npm run build:main",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "package": "npm run build && electron-builder",
+    "start": "electron .",
+    "lint": "eslint src --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.0",
+    "axios": "^1.6.0",
+    "socket.io-client": "^4.7.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@mui/material": "^5.15.0",
+    "@mui/icons-material": "^5.15.0",
+    "@emotion/react": "^11.11.0",
+    "@emotion/styled": "^11.11.0",
+    "zustand": "^4.4.0",
+    "react-router-dom": "^6.21.0",
+    "date-fns": "^3.0.0",
+    "jspdf": "^2.5.0",
+    "qrcode.react": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "electron-builder": "^24.9.0",
+    "concurrently": "^8.2.0",
+    "electron": "^28.0.0"
+  },
+  "build": {
+    "appId": "com.patelautoprint.desktop",
+    "productName": "Patel AutoPrint",
+    "copyright": "Copyright © 2024 Patel AutoPrint",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "requestedExecutionLevel": "highestAvailable"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Patel AutoPrint"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "contactkanix-commits",
+      "repo": "patel-autoprint"
+    }
+  }
+}
