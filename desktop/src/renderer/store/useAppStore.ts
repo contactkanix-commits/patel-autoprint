@@ -109,6 +109,10 @@ interface AppState {
     defaultPrinter: string;
     theme: 'light' | 'dark';
     language: 'en' | 'gu' | 'hi';
+    shopId: string;
+    shopName: string;
+    machineId: string;
+    activationKey: string;
   };
   
   // UI
@@ -162,6 +166,10 @@ export const useAppStore = create<AppState>()(
         defaultPrinter: '',
         theme: 'light',
         language: 'en',
+        shopId: '',
+        shopName: '',
+        machineId: '',
+        activationKey: '',
       },
       activeTab: 'print-queue',
       sidebarOpen: true,

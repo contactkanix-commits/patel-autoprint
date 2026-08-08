@@ -7,14 +7,23 @@ import AadhaarPan from './pages/AadhaarPan';
 import WhatsAppBot from './pages/WhatsAppBot';
 import DailyStats from './pages/DailyStats';
 import Settings from './pages/Settings';
+import Activation from './pages/Activation';
 import { useAppStore } from './store/useAppStore';
 
 const App: React.FC = () => {
-  const { loadSettings } = useAppStore();
+  const { loadSettings, settings } = useAppStore();
+  const [loaded, setLoaded] = useState(false);
   
   useEffect(() => {
     loadSettings();
+    setLoaded(true);
   }, [loadSettings]);
+
+  if (!loaded) return null;
+
+  if (!settings.apiKey) {
+    return <Activation />;
+  }
 
   return (
     <Routes>

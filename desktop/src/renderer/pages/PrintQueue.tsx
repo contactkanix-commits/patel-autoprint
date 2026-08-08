@@ -302,7 +302,7 @@ const PrintQueue: React.FC = () => {
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                         <Tooltip title="Preview">
-                          <IconButton size="small" color="primary"><Visibility /></IconButton>
+                          <IconButton size="small" color="primary"><ViewIcon /></IconButton>
                         </Tooltip>
                         {order.status === 'PENDING' && (
                           <>

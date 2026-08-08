@@ -1,9 +1,15 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { useAppStore } from '../store/useAppStore';
 
+const getApiBase = (): string => {
+  const { settings } = useAppStore.getState();
+  const base = (settings.apiUrl || 'https://patel-autoprint.onrender.com').replace(/\/$/, '');
+  return base;
+};
+
 const createApiClient = (): AxiosInstance => {
   const client = axios.create({
-    baseURL: 'https://patel-autoprint.onrender.com/api',
+    baseURL: `${getApiBase()}/api`,
     timeout: 30000,
     headers: { 'Content-Type': 'application/json' },
   });
@@ -34,12 +40,12 @@ export const api = createApiClient();
 // Shop & Activation
 export const shopApi = {
   create: (data: { name: string; ownerName: string; mobile: string; email?: string; address?: string; city?: string; state?: string; planId?: string }) =>
-    axios.post('/api/admin/shops', data),
+    axios.post(`${getApiBase()}/api/admin/shops`, data),
   
   list: () => api.get('/admin/shops'),
   
   activate: (data: { activationKey: string; machineName: string; osInfo?: string }) =>
-    axios.post('/activate', data),
+    axios.post(`${getApiBase()}/api/activate`, data),
 };
 
 // Plans
@@ -49,24 +55,24 @@ export const planApi = {
 
 // Agent
 export const agentApi = {
-  heartbeat: (apiKey: string) => axios.post('https://patel-autoprint.onrender.com/api/agent/heartbeat', {}, { headers: { 'x-api-key': apiKey } }),
+  heartbeat: (apiKey: string) => axios.post(`${getApiBase()}/api/agent/heartbeat`, {}, { headers: { 'x-api-key': apiKey } }),
   
-  fetchJobs: (apiKey: string) => axios.get('https://patel-autoprint.onrender.com/api/agent/v2/jobs', { headers: { 'x-api-key': apiKey } }),
+  fetchJobs: (apiKey: string) => axios.get(`${getApiBase()}/api/agent/v2/jobs`, { headers: { 'x-api-key': apiKey } }),
   
   downloadFile: (apiKey: string, jobId: string) => 
-    axios.get(`https://patel-autoprint.onrender.com/api/agent/v2/jobs/${jobId}/file`, { 
+    axios.get(`${getApiBase()}/api/agent/v2/jobs/${jobId}/file`, { 
       headers: { 'x-api-key': apiKey },
       responseType: 'blob',
     }),
   
   updateJobStatus: (apiKey: string, jobId: string, status: string, errorMessage?: string) =>
-    axios.put(`https://patel-autoprint.onrender.com/api/agent/v2/jobs/${jobId}/status`, 
+    axios.put(`${getApiBase()}/api/agent/v2/jobs/${jobId}/status`, 
       { status, errorMessage }, 
       { headers: { 'x-api-key': apiKey } }
     ),
   
   log: (apiKey: string, level: string, message: string, metadata?: any) =>
-    axios.post('https://patel-autoprint.onrender.com/api/agent/logs', 
+    axios.post(`${getApiBase()}/api/agent/logs`, 
       { level, message, metadata },
       { headers: { 'x-api-key': apiKey } }
     ),

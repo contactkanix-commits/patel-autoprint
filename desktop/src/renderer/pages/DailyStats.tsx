@@ -9,7 +9,7 @@ import {
 import {
   TrendingUp, AttachMoney, ShoppingCart, CheckCircle, Print as PrintIcon,
   Person, LocalOffer, PieChart, BarChart, ShowChart, Refresh as RefreshIcon,
-  Download, CalendarToday, DateRange, FilterList
+  Download, CalendarToday, DateRange, FilterList, Description as DescriptionIcon
 } from '@mui/icons-material';
 import { useAppStore } from '../store/useAppStore';
 import { dashboardApi, orderApi, printerApi } from '../api';

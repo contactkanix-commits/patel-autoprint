@@ -5,14 +5,16 @@ import {
   CircularProgress, Tabs, Tab, FormControlLabel, Switch, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, CardHeader, CardActions,
   IconButton, Dialog, DialogTitle, DialogContent, DialogActions, Slider,
-  FormHelperText, Avatar, Badge
+  FormHelperText, Avatar, Badge, Chip, Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Save as SaveIcon,
   Person, Business, Print as PrintIcon, AttachMoney, Settings as SettingsIcon,
   Key as KeyIcon, QrCode, CloudUpload, CloudDownload, Palette,
   Language, Brightness4, Brightness7, Info, Warning as WarningIcon,
-  Verified as VerifiedIcon, Block as BlockIcon, ContentCopy
+  Verified as VerifiedIcon, Block as BlockIcon, ContentCopy,
+  Description as DescriptionIcon, Image as ImageIcon,
+  CheckCircle, Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useAppStore } from '../store/useAppStore';
 import { settingsApi, printerApi, shopApi, planApi, subscriptionApi } from '../api';

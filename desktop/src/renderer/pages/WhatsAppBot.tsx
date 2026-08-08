@@ -12,7 +12,7 @@ import {
   Refresh as RefreshIcon, Logout as LogoutIcon, CheckCircle,
   Phone, Person, AttachFile, Mic, EmojiEmotions,
   Notifications as NotificationsIcon, Settings as SettingsIcon,
-  QrCodeScanner, Wifi, WifiOff
+  QrCodeScanner, Wifi, WifiOff, Add as AddIcon
 } from '@mui/icons-material';
 import { useAppStore } from '../store/useAppStore';
 import { qrCodeApi, whatsappApi } from '../api';
