@@ -28,4 +28,14 @@ contextBridge.exposeInMainWorld('patelApp', {
   printers: {
     listSystem: () => ipcRenderer.invoke('printers:list-system'),
   },
+  updates: {
+    check: () => ipcRenderer.invoke('app:check-for-updates'),
+    getStatus: () => ipcRenderer.invoke('app:get-update-status'),
+    install: () => ipcRenderer.invoke('app:install-update'),
+    onStatus: (callback) => {
+      const listener = (_e, data) => callback(data);
+      ipcRenderer.on('app:update-status', listener);
+      return () => ipcRenderer.removeListener('app:update-status', listener);
+    },
+  },
 });

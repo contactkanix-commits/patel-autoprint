@@ -1,4 +1,5 @@
 const { app, BrowserWindow, shell, session, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const { PrintAgent } = require('./agent');
@@ -11,6 +12,37 @@ let tray = null;
 let isQuitting = false;
 
 const agent = new PrintAgent();
+
+let lastUpdateStatus = null;
+
+function sendUpdateStatus(status) {
+  lastUpdateStatus = status;
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('app:update-status', status);
+  }
+}
+
+function setupAutoUpdater() {
+  if (isDev) return;
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => sendUpdateStatus({ state: 'checking' }));
+  autoUpdater.on('update-available', (info) => sendUpdateStatus({ state: 'available', version: info.version }));
+  autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'up-to-date' }));
+  autoUpdater.on('download-progress', (p) => sendUpdateStatus({ state: 'downloading', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (info) => sendUpdateStatus({ state: 'downloaded', version: info.version }));
+  autoUpdater.on('error', (err) => {
+    console.error('[auto-update]', err?.message || err);
+    sendUpdateStatus({ state: 'error', message: err?.message || 'Update check failed' });
+  });
+
+  // Check shortly after launch, then periodically while the app runs.
+  setTimeout(() => autoUpdater.checkForUpdates(), 15000);
+  setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
+}
 
 function credsFile() {
   return path.join(app.getPath('userData'), 'agent-credentials.json');
@@ -160,6 +192,16 @@ function registerIpc() {
   });
 
   ipcMain.handle('printers:list-system', () => listSystemPrinters());
+
+  ipcMain.handle('app:check-for-updates', () => {
+    if (!isDev) autoUpdater.checkForUpdates();
+  });
+
+  ipcMain.handle('app:get-update-status', () => lastUpdateStatus);
+
+  ipcMain.handle('app:install-update', () => {
+    if (!isDev) autoUpdater.quitAndInstall();
+  });
 }
 
 app.whenReady().then(() => {
@@ -179,6 +221,7 @@ app.whenReady().then(() => {
   });
 
   registerIpc();
+  setupAutoUpdater();
 
   agent.on('status', broadcastAgentStatus);
   agent.on('auth-expired', () => {

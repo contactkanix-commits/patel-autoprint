@@ -24,6 +24,7 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../AuthContext';
 import { useEffect, useState } from 'react';
+import UpdateNotifier from '../../components/UpdateNotifier';
 
 const tabs = [
   { label: 'Dashboard', icon: <DashboardIcon />, path: '/admin' },
@@ -146,6 +147,7 @@ export default function AdminLayout() {
       </AppBar>
 
       <SubscriptionBanner subscription={subscription} />
+      <UpdateNotifier />
 
       <Box
         component="main"

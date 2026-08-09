@@ -286,6 +286,12 @@ if (fs.existsSync(SUPERADMIN_DIST)) {
   app.use('/superadmin', express.static(SUPERADMIN_DIST));
 }
 
+// Desktop app auto-update files (latest.yml + installer + blockmap)
+const UPDATES_DIR = path.join(__dirname, '..', 'updates');
+if (fs.existsSync(UPDATES_DIR)) {
+  app.use('/updates', express.static(UPDATES_DIR));
+}
+
 // ============================================
 // AUTH ROUTES
 // ============================================

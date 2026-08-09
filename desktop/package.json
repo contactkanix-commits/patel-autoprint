@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:127.0.0.1:5173 && electron .\"",
     "build": "vite build",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder",
+    "publish:win": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -18,6 +19,7 @@
     "@mui/icons-material": "^5.15.0",
     "@mui/material": "^5.15.0",
     "axios": "^1.6.2",
+    "electron-updater": "^6.3.9",
     "pdf-to-printer": "^5.8.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -50,6 +52,10 @@
     ],
     "win": {
       "target": "nsis"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://patel-autoprint.onrender.com/updates/"
     },
     "nsis": {
       "oneClick": false,
