@@ -9,6 +9,8 @@ import {
   Button,
   Avatar,
   Chip,
+  Alert,
+  AlertTitle,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -17,6 +19,8 @@ import {
   Assessment as AssessmentIcon,
   Logout as LogoutIcon,
   SettingsRemote as AgentIcon,
+  WarningAmber as WarningIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../AuthContext';
 import { useEffect, useState } from 'react';
@@ -29,8 +33,48 @@ const tabs = [
   { label: 'Agent', icon: <AgentIcon />, path: '/admin/agent' },
 ];
 
+function SubscriptionBanner({ subscription }) {
+  if (!subscription) return null;
+  const { active, status, daysLeft, endDate } = subscription;
+
+  if (!active) {
+    const reason =
+      status === 'SUSPENDED'
+        ? 'Your shop subscription has been suspended.'
+        : status === 'CANCELLED'
+        ? 'Your shop subscription has been cancelled.'
+        : 'Your shop subscription has expired.';
+    return (
+      <Alert
+        severity="error"
+        icon={<BlockIcon />}
+        sx={{ borderRadius: 0 }}
+      >
+        <AlertTitle>Printing blocked</AlertTitle>
+        {reason} Printing has been disabled. Contact Patel AutoPrint to renew your subscription.
+      </Alert>
+    );
+  }
+
+  if (daysLeft !== null && daysLeft !== undefined && daysLeft <= 5) {
+    return (
+      <Alert
+        severity="warning"
+        icon={<WarningIcon />}
+        sx={{ borderRadius: 0 }}
+      >
+        <AlertTitle>Subscription expiring soon</AlertTitle>
+        Your subscription ends {daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`}
+        {endDate ? ` (${new Date(endDate).toLocaleDateString()})` : ''}. Renew to keep printing.
+      </Alert>
+    );
+  }
+
+  return null;
+}
+
 export default function AdminLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, subscription } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -57,8 +101,10 @@ export default function AdminLayout() {
     navigate(tabs[index].path);
   };
 
+  const subscriptionBlocked = !!subscription && !subscription.active;
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%', minHeight: '100vh', pt: '64px' }}>
       <AppBar position="fixed">
         <Toolbar sx={{ gap: 2 }}>
           <Avatar sx={{ bgcolor: 'primary.dark' }}>
@@ -69,8 +115,8 @@ export default function AdminLayout() {
           </Typography>
           {agentRunning !== null && (
             <Chip
-              icon={<span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: agentRunning ? '#4caf50' : '#9e9e9e', marginLeft: 8 }} />}
-              label={agentRunning ? 'Agent ON' : 'Agent OFF'}
+              icon={<span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: subscriptionBlocked ? '#f44336' : agentRunning ? '#4caf50' : '#9e9e9e', marginLeft: 8 }} />}
+              label={subscriptionBlocked ? 'Agent BLOCKED' : agentRunning ? 'Agent ON' : 'Agent OFF'}
               size="small"
               sx={{
                 color: 'inherit',
@@ -99,14 +145,14 @@ export default function AdminLayout() {
         </Toolbar>
       </AppBar>
 
+      <SubscriptionBanner subscription={subscription} />
+
       <Box
         component="main"
         sx={{
           flexGrow: 1,
           minWidth: 0,
           p: { xs: 2, sm: 3 },
-          mt: '64px',
-          minHeight: 'calc(100vh - 64px)',
         }}
       >
         <Outlet />

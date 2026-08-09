@@ -23,8 +23,9 @@ api.interceptors.response.use(
       if (error.response.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        window.location.hash = '#/login';
-        toast.error('Session expired. Please login again.');
+        localStorage.removeItem('subscription');
+        window.location.hash = '#/activate';
+        toast.error('Session expired. Please activate again.');
       } else {
         const message =
           error.response.data?.message ||

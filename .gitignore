@@ -8,6 +8,7 @@ dist/
 build/
 # Commit the pre-built frontend so the cloud host serves it without a build step
 !frontend/dist/
+!superadmin/dist/
 # Desktop app build output
 desktop/dist/
 desktop/dist-electron/

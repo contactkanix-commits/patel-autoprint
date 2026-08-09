@@ -26,24 +26,40 @@ model Shop {
   pricingRules  PricingRule[]
   orderFiles    OrderFile[]
   printJobs     PrintJob[]
+  subscription  Subscription?
 
   @@map("shops")
 }
 
 model User {
   id           String   @id @default(uuid())
-  shopId       String
+  shopId       String?
   email        String
   passwordHash String
   name         String
-  role         String   @default("OPERATOR") // OWNER, MANAGER, OPERATOR, CUSTOMER
+  role         String   @default("OPERATOR") // SUPER_ADMIN, OWNER, MANAGER, OPERATOR, CUSTOMER
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  shop Shop @relation(fields: [shopId], references: [id])
+  shop Shop? @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
-  @@unique([shopId, email])
   @@map("users")
+}
+
+model Subscription {
+  id          String   @id @default(uuid())
+  shopId      String   @unique
+  plan        String   @default("FREE")   // FREE, STARTER, PROFESSIONAL, ENTERPRISE
+  status      String   @default("ACTIVE") // ACTIVE, SUSPENDED, CANCELLED (expiry is computed from endDate)
+  price       Float    @default(0)
+  endDate     DateTime?
+  maxPrinters Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
 }
 
 model Customer {
@@ -55,7 +71,7 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  shop   Shop    @relation(fields: [shopId], references: [id])
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
   orders Order[]
 
   @@map("customers")
@@ -78,7 +94,7 @@ model Order {
   approvedAt    DateTime?
   printedAt     DateTime?
 
-  shop      Shop        @relation(fields: [shopId], references: [id])
+  shop      Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
   customer  Customer?   @relation(fields: [customerId], references: [id])
   files     OrderFile[]
   printJobs PrintJob[]
@@ -103,7 +119,7 @@ model OrderFile {
   shopId        String
 
   order    Order      @relation(fields: [orderId], references: [id])
-  shop     Shop       @relation(fields: [shopId], references: [id])
+  shop     Shop       @relation(fields: [shopId], references: [id], onDelete: Cascade)
   printJobs PrintJob[]
 
   @@map("order_files")
@@ -127,7 +143,7 @@ model PrintJob {
 
   order     Order     @relation(fields: [orderId], references: [id])
   file      OrderFile @relation(fields: [fileId], references: [id])
-  shop      Shop      @relation(fields: [shopId], references: [id])
+  shop      Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("print_jobs")
 }
@@ -142,7 +158,7 @@ model Printer {
   status         String   @default("ONLINE") // ONLINE, OFFLINE, PRINTING, ERROR
   shopId         String
 
-  shop Shop @relation(fields: [shopId], references: [id])
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("printers")
 }
@@ -156,7 +172,7 @@ model PricingRule {
   taxRate         Float    @default(18)
   shopId          String
 
-  shop Shop @relation(fields: [shopId], references: [id])
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("pricing_rules")
 }

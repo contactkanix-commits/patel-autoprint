@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import api from './api';
 import { getApiUrl } from './settings';
 
@@ -20,21 +20,34 @@ function agentClearCredentials() {
   }
 }
 
-function storeSession(token, user) {
+function storeSession(token, user, subscription) {
   localStorage.setItem('token', token);
   localStorage.setItem('user', JSON.stringify(user));
+  if (subscription) {
+    localStorage.setItem('subscription', JSON.stringify(subscription));
+  }
   agentSetCredentials(token);
 }
 
 function clearSession() {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
+  localStorage.removeItem('subscription');
   agentClearCredentials();
+}
+
+function loadStoredSubscription() {
+  try {
+    return JSON.parse(localStorage.getItem('subscription')) || null;
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [subscription, setSubscription] = useState(loadStoredSubscription());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,8 +69,13 @@ export function AuthProvider({ children }) {
           setToken(savedToken);
           const result = await api.get('/auth/profile');
           if (result.success) {
-            setUser(result.data);
-            localStorage.setItem('user', JSON.stringify(result.data));
+            const { subscription: sub, ...userData } = result.data;
+            setUser(userData);
+            setSubscription(sub || null);
+            localStorage.setItem('user', JSON.stringify(userData));
+            if (sub) {
+              localStorage.setItem('subscription', JSON.stringify(sub));
+            }
           }
           agentSetCredentials(savedToken);
         } catch {
@@ -84,10 +102,11 @@ export function AuthProvider({ children }) {
   const activate = async (agentKey) => {
     const result = await api.post('/agent/key-login', { agentKey });
     if (result.success) {
-      const { token: newToken, user: userData } = result.data;
+      const { token: newToken, user: userData, subscription: sub } = result.data;
       setToken(newToken);
       setUser(userData);
-      storeSession(newToken, userData);
+      setSubscription(sub || null);
+      storeSession(newToken, userData, sub);
       return userData;
     }
     throw new Error(result.message || 'Activation failed');
@@ -96,10 +115,11 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const result = await api.post('/auth/login', { email, password });
     if (result.success) {
-      const { token: newToken, user: userData } = result.data;
+      const { token: newToken, user: userData, subscription: sub } = result.data;
       setToken(newToken);
       setUser(userData);
-      storeSession(newToken, userData);
+      setSubscription(sub || null);
+      storeSession(newToken, userData, sub);
       return userData;
     }
     throw new Error(result.message || 'Login failed');
@@ -108,18 +128,51 @@ export function AuthProvider({ children }) {
   const logout = () => {
     setToken(null);
     setUser(null);
+    setSubscription(null);
     clearSession();
   };
+
+  // Refresh subscription status so countdown/suspension notices stay current.
+  const refreshSubscription = useCallback(async () => {
+    if (!token) return null;
+    try {
+      const result = await api.get('/auth/profile');
+      if (result.success) {
+        const sub = result.data?.subscription || null;
+        setSubscription(sub);
+        if (sub) {
+          localStorage.setItem('subscription', JSON.stringify(sub));
+        }
+        return sub;
+      }
+    } catch {
+      // ignore transient errors; next poll will retry
+    }
+    return null;
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const interval = setInterval(refreshSubscription, 5 * 60 * 1000);
+    const onFocus = () => refreshSubscription();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [token, refreshSubscription]);
 
   return (
     <AuthContext.Provider
       value={{
         user,
         token,
+        subscription,
         loading,
         activate,
         login,
         logout,
+        refreshSubscription,
         isAuthenticated: !!token && !!user,
       }}
     >

@@ -52,6 +52,26 @@ async function main() {
     console.log(`Merged into shop ${keepShopId}. Removed ${removeIds.length} duplicate(s).`);
   }
 
+  // --- Ensure super admin exists (always runs, even on already-seeded DB) ---
+  const superAdminEmail = 'superadmin@patelautoprint.com';
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'superadmin123';
+  const existingSuperAdmin = await prisma.user.findFirst({ where: { email: superAdminEmail } });
+  if (!existingSuperAdmin) {
+    const superAdminHash = await bcrypt.hash(superAdminPassword, 10);
+    await prisma.user.create({
+      data: {
+        shopId: null,
+        email: superAdminEmail,
+        passwordHash: superAdminHash,
+        name: 'Super Admin',
+        role: 'SUPER_ADMIN',
+      },
+    });
+    console.log(`Super admin created: ${superAdminEmail}`);
+  } else {
+    console.log(`Super admin already exists: ${superAdminEmail}`);
+  }
+
   // Skip seeding if data already exists (idempotent — safe to run on every restart)
   if (shops.length > 0) {
     console.log('Database already seeded, skipping.');
@@ -72,6 +92,18 @@ async function main() {
   });
 
   console.log(`Shop created: ${shop.name} (${shop.id})`);
+
+  // Create the shop's subscription (free plan by default)
+  await prisma.subscription.create({
+    data: {
+      shopId: shop.id,
+      plan: 'FREE',
+      status: 'ACTIVE',
+      price: 0,
+      maxPrinters: 1,
+    },
+  });
+  console.log(`Subscription created for ${shop.name}`);
 
   // Create shop owner
   const passwordHash = await bcrypt.hash('admin123', 10);

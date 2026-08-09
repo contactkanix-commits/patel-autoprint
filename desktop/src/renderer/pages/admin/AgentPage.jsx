@@ -10,6 +10,7 @@ import {
   CircularProgress,
   Divider,
   Stack,
+  Alert,
 } from '@mui/material';
 import {
   PlayArrow as StartIcon,
@@ -19,8 +20,10 @@ import {
   CheckCircle as CompletedIcon,
   Cancel as FailedIcon,
   Print as PrintIcon,
+  Block as BlockIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../AuthContext';
 
 function agentAvailable() {
   return typeof window !== 'undefined' && !!window.patelApp?.agent;
@@ -58,11 +61,13 @@ function StatCard({ label, value, icon, color }) {
 }
 
 export default function AgentPage() {
+  const { subscription } = useAuth();
   const status = useAgentStatus();
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
   const running = status?.status === 'running';
+  const blocked = !!subscription && !subscription.active;
 
   const handleStart = useCallback(async () => {
     setStarting(true);
@@ -108,7 +113,7 @@ export default function AgentPage() {
             color="success"
             startIcon={starting ? <CircularProgress size={18} /> : <StartIcon />}
             onClick={handleStart}
-            disabled={running || starting}
+            disabled={running || starting || blocked}
           >
             Start
           </Button>
@@ -128,6 +133,13 @@ export default function AgentPage() {
         The agent automatically downloads approved print jobs from the cloud and sends them to
         your local printers. It keeps running even when this window is closed.
       </Typography>
+
+      {blocked && (
+        <Alert severity="error" icon={<BlockIcon />} sx={{ mb: 3 }}>
+          Your subscription is {subscription?.status?.toLowerCase()}. Printing has been blocked.
+          Contact Patel AutoPrint to renew your subscription.
+        </Alert>
+      )}
 
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>

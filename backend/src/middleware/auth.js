@@ -61,4 +61,15 @@ const requireRole = (...roles) => {
   };
 };
 
-module.exports = { authenticate, requireRole, prisma, JWT_SECRET };
+const requireSuperAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({
+      success: false,
+      message: 'Super admin access required',
+      code: 'FORBIDDEN',
+    });
+  }
+  next();
+};
+
+module.exports = { authenticate, requireRole, requireSuperAdmin, prisma, JWT_SECRET };

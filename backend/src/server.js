@@ -15,7 +15,7 @@ const WebSocket = require('ws');
 require('dotenv').config();
 
 const { AppError, errorHandler, asyncHandler } = require('./middleware/errorHandler');
-const { authenticate, requireRole } = require('./middleware/auth');
+const { authenticate, requireRole, requireSuperAdmin } = require('./middleware/auth');
 const { analyzeFile, getFileType, isSupportedFileType } = require('./services/analyzer');
 const { calculatePrice } = require('./services/pricing');
 const { determineFlipDirection } = require('./services/duplex');
@@ -47,6 +47,72 @@ async function ensureAgentKeys() {
   if (shops.length > 0) {
     console.log(`Generated agent keys for ${shops.length} shop(s)`);
   }
+}
+
+// Helper: ensure every shop has a subscription record (defaults to free)
+async function ensureSubscriptions() {
+  const shops = await prisma.shop.findMany({ where: { subscription: null }, select: { id: true } });
+  for (const s of shops) {
+    await prisma.subscription.create({
+      data: { shopId: s.id, plan: 'FREE', status: 'ACTIVE', price: 0, maxPrinters: 1 },
+    });
+  }
+  if (shops.length > 0) {
+    console.log(`Created default subscriptions for ${shops.length} shop(s)`);
+  }
+}
+
+// Helper: derive a shop's subscription status.
+// ACTIVE until 5 days before expiry, then EXPIRING (daysLeft counts down),
+// then automatically EXPIRED after the expiry date passes.
+async function getSubscriptionStatus(shopId) {
+  const sub = await prisma.subscription.findUnique({ where: { shopId } });
+  if (!sub) {
+    return { active: true, status: 'ACTIVE', plan: 'FREE', price: 0, endDate: null, daysLeft: null, maxPrinters: 1 };
+  }
+
+  const end = sub.endDate ? new Date(sub.endDate) : null;
+  const now = new Date();
+
+  if (sub.status === 'SUSPENDED' || sub.status === 'CANCELLED') {
+    return {
+      active: false,
+      status: sub.status,
+      plan: sub.plan,
+      price: sub.price,
+      endDate: end ? end.toISOString() : null,
+      daysLeft: 0,
+      maxPrinters: sub.maxPrinters,
+    };
+  }
+
+  if (end && end.getTime() < now.getTime()) {
+    return {
+      active: false,
+      status: 'EXPIRED',
+      plan: sub.plan,
+      price: sub.price,
+      endDate: end.toISOString(),
+      daysLeft: 0,
+      maxPrinters: sub.maxPrinters,
+    };
+  }
+
+  let daysLeft = null;
+  if (end) {
+    const msLeft = end.getTime() - now.getTime();
+    daysLeft = Math.max(1, Math.ceil(msLeft / (1000 * 60 * 60 * 24)));
+  }
+
+  return {
+    active: true,
+    status: 'ACTIVE',
+    plan: sub.plan,
+    price: sub.price,
+    endDate: end ? end.toISOString() : null,
+    daysLeft,
+    maxPrinters: sub.maxPrinters,
+  };
 }
 
 // Helper: detect image files for contact-sheet grouping
@@ -214,6 +280,12 @@ if (fs.existsSync(FRONTEND_DIST)) {
 }
 app.use('/uploads', express.static(UPLOAD_DIR));
 
+// Super admin panel (vendor)
+const SUPERADMIN_DIST = path.join(__dirname, '..', '..', 'superadmin', 'dist');
+if (fs.existsSync(SUPERADMIN_DIST)) {
+  app.use('/superadmin', express.static(SUPERADMIN_DIST));
+}
+
 // ============================================
 // AUTH ROUTES
 // ============================================
@@ -281,6 +353,7 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   }
 
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+  const subscription = user.shopId ? await getSubscriptionStatus(user.shopId) : null;
 
   res.json({
     success: true,
@@ -293,18 +366,21 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
         role: user.role,
         shopId: user.shopId,
       },
+      subscription,
     },
   });
 }));
 
 app.get('/api/auth/profile', authenticate, asyncHandler(async (req, res) => {
   const shop = await prisma.shop.findUnique({ where: { id: req.user.shopId } });
+  const subscription = req.user.shopId ? await getSubscriptionStatus(req.user.shopId) : null;
 
   res.json({
     success: true,
     data: {
       ...req.user,
       shopName: shop ? shop.name : null,
+      subscription,
     },
   });
 }));
@@ -1248,6 +1324,21 @@ app.get('/api/health', asyncHandler(async (req, res) => {
 // AGENT API ROUTES
 // ============================================
 
+// Middleware: block shops whose subscription has expired/suspended
+const requireActiveSubscription = asyncHandler(async (req, res, next) => {
+  if (!req.user.shopId) throw new AppError('Not a shop user', 403, 'FORBIDDEN');
+  const sub = await getSubscriptionStatus(req.user.shopId);
+  if (!sub.active) {
+    throw new AppError(
+      'This shop\'s subscription has expired. Contact Patel AutoPrint to renew.',
+      403,
+      'SUBSCRIPTION_SUSPENDED'
+    );
+  }
+  req.subscription = sub;
+  next();
+});
+
 // Agent login - same as user login, returns JWT
 app.post('/api/agent/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -1283,6 +1374,15 @@ app.post('/api/agent/key-login', asyncHandler(async (req, res) => {
   });
   if (!shop) throw new AppError('Invalid agent key', 401, 'INVALID_AGENT_KEY');
 
+  const subscription = await getSubscriptionStatus(shop.id);
+  if (!subscription.active) {
+    throw new AppError(
+      'This shop\'s subscription has expired. Contact Patel AutoPrint to renew.',
+      403,
+      'SUBSCRIPTION_SUSPENDED'
+    );
+  }
+
   let user = await prisma.user.findFirst({ where: { shopId: shop.id, role: 'OWNER' } });
   if (!user) user = await prisma.user.findFirst({ where: { shopId: shop.id } });
   if (!user) throw new AppError('No account found for this shop', 404, 'NO_USER');
@@ -1301,12 +1401,13 @@ app.post('/api/agent/key-login', asyncHandler(async (req, res) => {
         shopId: shop.id,
         shopName: shop.name,
       },
+      subscription,
     },
   });
 }));
 
 // Get pending print jobs for this shop
-app.get('/api/agent/jobs', authenticate, asyncHandler(async (req, res) => {
+app.get('/api/agent/jobs', authenticate, requireActiveSubscription, asyncHandler(async (req, res) => {
   const shopId = req.user.shopId;
 
   const jobs = await prisma.printJob.findMany({
@@ -1321,11 +1422,11 @@ app.get('/api/agent/jobs', authenticate, asyncHandler(async (req, res) => {
     orderBy: { id: 'asc' },
   });
 
-  res.json({ success: true, data: jobs });
+  res.json({ success: true, data: jobs, subscription: req.subscription });
 }));
 
 // Get print-ready file for a job
-app.get('/api/agent/jobs/:id/file', authenticate, asyncHandler(async (req, res) => {
+app.get('/api/agent/jobs/:id/file', authenticate, requireActiveSubscription, asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const job = await prisma.printJob.findUnique({
@@ -1365,7 +1466,7 @@ app.get('/api/agent/jobs/:id/file', authenticate, asyncHandler(async (req, res) 
 }));
 
 // Update print job status (agent reports result)
-app.put('/api/agent/jobs/:id/status', authenticate, asyncHandler(async (req, res) => {
+app.put('/api/agent/jobs/:id/status', authenticate, requireActiveSubscription, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status, message } = req.body;
 
@@ -1398,8 +1499,266 @@ app.put('/api/agent/jobs/:id/status', authenticate, asyncHandler(async (req, res
 }));
 
 // ============================================
+// SUPER ADMIN ROUTES (vendor / tool owner)
+// ============================================
+
+// Overall stats for the super admin dashboard
+app.get('/api/superadmin/stats', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const [shops, orders, printers, printJobs] = await Promise.all([
+    prisma.shop.count(),
+    prisma.order.count(),
+    prisma.printer.count(),
+    prisma.printJob.count(),
+  ]);
+
+  const shopRows = await prisma.shop.findMany({
+    select: { id: true, subscription: { select: { status: true, endDate: true } } },
+  });
+
+  const statuses = await Promise.all(
+    shopRows.map(async (s) => (await getSubscriptionStatus(s.id)).status)
+  );
+
+  const counts = { ACTIVE: 0, EXPIRING: 0, EXPIRED: 0, SUSPENDED: 0, CANCELLED: 0 };
+  statuses.forEach((st) => {
+    if (st === 'ACTIVE') counts.ACTIVE++;
+    else if (st === 'SUSPENDED') counts.SUSPENDED++;
+    else if (st === 'CANCELLED') counts.CANCELLED++;
+    else counts.EXPIRED++;
+  });
+
+  res.json({
+    success: true,
+    data: {
+      shops,
+      orders,
+      printers,
+      printJobs,
+      subscriptions: counts,
+    },
+  });
+}));
+
+// List all shops with subscription + counts
+app.get('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const q = (req.query.q || '').toString().trim().toLowerCase();
+
+  const shops = await prisma.shop.findMany({
+    orderBy: { createdAt: 'desc' },
+    include: {
+      subscription: true,
+      _count: {
+        select: { orders: true, printers: true, users: true },
+      },
+    },
+  });
+
+  const enriched = await Promise.all(
+    shops.map(async (s) => {
+      const sub = await getSubscriptionStatus(s.id);
+      if (q && !s.name.toLowerCase().includes(q) && !(s.agentKey || '').toLowerCase().includes(q)) {
+        return null;
+      }
+      return { ...s, subStatus: sub };
+    })
+  );
+
+  res.json({ success: true, data: enriched.filter(Boolean) });
+}));
+
+// Shop detail with activity stats
+app.get('/api/superadmin/shops/:id', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const shop = await prisma.shop.findUnique({
+    where: { id },
+    include: {
+      subscription: true,
+      _count: {
+        select: {
+          orders: true,
+          printers: true,
+          users: true,
+          customers: true,
+          printJobs: true,
+        },
+      },
+    },
+  });
+
+  if (!shop) throw new AppError('Shop not found', 404, 'NOT_FOUND');
+
+  const [lastOrder, completedOrders, recentJobs] = await Promise.all([
+    prisma.order.findFirst({ where: { shopId: id }, orderBy: { createdAt: 'desc' } }),
+    prisma.order.count({ where: { shopId: id, status: 'COMPLETED' } }),
+    prisma.printJob.findMany({
+      where: { shopId: id },
+      orderBy: { id: 'desc' },
+      take: 5,
+      select: { id: true, status: true, paperSize: true, colorMode: true },
+    }),
+  ]);
+
+  res.json({
+    success: true,
+    data: {
+      ...shop,
+      subStatus: await getSubscriptionStatus(id),
+      lastOrder,
+      completedOrders,
+      recentJobs,
+    },
+  });
+}));
+
+// Create a shop (shop + owner + subscription + agent key)
+app.post('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const {
+    name,
+    adminName,
+    adminEmail,
+    adminPassword,
+    plan,
+    price,
+    endDate,
+    maxPrinters,
+  } = req.body;
+
+  if (!name || !adminEmail || !adminPassword) {
+    throw new AppError('Shop name, admin email and password are required', 400, 'MISSING_FIELDS');
+  }
+
+  const existing = await prisma.user.findFirst({ where: { email: adminEmail } });
+  if (existing) {
+    throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
+  }
+
+  const shop = await prisma.shop.create({
+    data: { name, agentKey: generateAgentKey() },
+  });
+
+  const passwordHash = await bcrypt.hash(adminPassword, 10);
+  const user = await prisma.user.create({
+    data: {
+      shopId: shop.id,
+      email: adminEmail,
+      passwordHash,
+      name: adminName || 'Shop Owner',
+      role: 'OWNER',
+    },
+  });
+
+  const subscription = await prisma.subscription.create({
+    data: {
+      shopId: shop.id,
+      plan: plan || 'FREE',
+      status: 'ACTIVE',
+      price: price || 0,
+      endDate: endDate ? new Date(endDate) : null,
+      maxPrinters: maxPrinters || 1,
+    },
+  });
+
+  res.json({
+    success: true,
+    data: {
+      id: shop.id,
+      name: shop.name,
+      agentKey: shop.agentKey,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      subscription,
+    },
+  });
+}));
+
+// Update a shop (name + subscription)
+app.put('/api/superadmin/shops/:id', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { name, plan, status, price, endDate, maxPrinters } = req.body;
+
+  const shop = await prisma.shop.findUnique({ where: { id } });
+  if (!shop) throw new AppError('Shop not found', 404, 'NOT_FOUND');
+
+  const updatedShop = await prisma.shop.update({
+    where: { id },
+    data: { name: name || shop.name },
+  });
+
+  const subData = {};
+  if (plan !== undefined) subData.plan = plan;
+  if (status !== undefined) subData.status = status;
+  if (price !== undefined) subData.price = price;
+  if (maxPrinters !== undefined) subData.maxPrinters = maxPrinters;
+  if (endDate !== undefined) subData.endDate = endDate ? new Date(endDate) : null;
+
+  let subscription = await prisma.subscription.findUnique({ where: { shopId: id } });
+  if (subscription) {
+    subscription = await prisma.subscription.update({
+      where: { shopId: id },
+      data: subData,
+    });
+  } else {
+    subscription = await prisma.subscription.create({
+      data: { shopId: id, ...subData },
+    });
+  }
+
+  res.json({ success: true, data: { shop: updatedShop, subscription } });
+}));
+
+// Delete a shop (cascades to users, orders, printers, etc.)
+app.delete('/api/superadmin/shops/:id', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const shop = await prisma.shop.findUnique({ where: { id } });
+  if (!shop) throw new AppError('Shop not found', 404, 'NOT_FOUND');
+
+  await prisma.shop.delete({ where: { id } });
+  res.json({ success: true, data: { id } });
+}));
+
+// Generate a new agent key for a shop (old key stops working)
+app.post('/api/superadmin/shops/:id/regenerate-key', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const shop = await prisma.shop.update({
+    where: { id },
+    data: { agentKey: generateAgentKey() },
+  });
+
+  res.json({ success: true, data: { agentKey: shop.agentKey } });
+}));
+
+// Change super admin password
+app.post('/api/superadmin/change-password', authenticate, requireSuperAdmin, asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    throw new AppError('New password must be at least 6 characters', 400, 'WEAK_PASSWORD');
+  }
+
+  const admin = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!admin) throw new AppError('Account not found', 404, 'NOT_FOUND');
+
+  if (currentPassword) {
+    const valid = await bcrypt.compare(currentPassword, admin.passwordHash);
+    if (!valid) throw new AppError('Current password is incorrect', 401, 'INVALID_PASSWORD');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({ where: { id: admin.id }, data: { passwordHash } });
+
+  res.json({ success: true, message: 'Password updated' });
+}));
+
+// ============================================
 // CATCH ALL - SPA ROUTES (must be last)
 // ============================================
+
+if (fs.existsSync(SUPERADMIN_DIST)) {
+  app.get('/superadmin/*', (req, res) => {
+    res.sendFile(path.join(SUPERADMIN_DIST, 'index.html'));
+  });
+}
 
 if (fs.existsSync(FRONTEND_DIST)) {
   app.get('*', (req, res) => {
@@ -1417,6 +1776,7 @@ const start = async () => {
     console.log('Database connected successfully');
 
     await ensureAgentKeys();
+    await ensureSubscriptions();
 
     const server = createServer(app);
 
