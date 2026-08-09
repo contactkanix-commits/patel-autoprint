@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Container,
   Box,
@@ -783,6 +784,7 @@ function Step4Confirmation({ order }) {
 }
 
 export default function CustomerPortal() {
+  const { slug: shopSlug } = useParams() || {};
   const [activeStep, setActiveStep] = useState(0);
   const [files, setFiles] = useState([]);
   const [customerInfo, setCustomerInfo] = useState({ name: '', phone: '', email: '' });
@@ -793,8 +795,23 @@ export default function CustomerPortal() {
   const [priceData, setPriceData] = useState(null);
   const [loadingPrice, setLoadingPrice] = useState(false);
   const [upiQrUrl, setUpiQrUrl] = useState('');
+  const [shop, setShop] = useState(null);
+  const [shopError, setShopError] = useState('');
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  useEffect(() => {
+    if (!shopSlug) return;
+    let cancelled = false;
+    api.get(`/guest/shop/${shopSlug}`)
+      .then((result) => {
+        if (!cancelled && result.success) setShop(result.data);
+      })
+      .catch((err) => {
+        if (!cancelled) setShopError(err?.message || 'Shop not found');
+      });
+    return () => { cancelled = true; };
+  }, [shopSlug]);
 
   const handleUpload = async () => {
     if (files.length === 0) { toast.error('Please select files'); return; }
@@ -806,6 +823,8 @@ export default function CustomerPortal() {
       formData.append('customerName', customerInfo.name);
       formData.append('customerPhone', customerInfo.phone);
       formData.append('customerEmail', customerInfo.email);
+      if (shop?.id) formData.append('shopId', shop.id);
+      else if (shopSlug) formData.append('shopRef', shopSlug);
 
       const result = await api.post('/guest/upload', formData);
       if (result.success) {
@@ -859,7 +878,10 @@ export default function CustomerPortal() {
 
   const fetchUpiQr = async () => {
     try {
-      const result = await api.get('/settings/public/upi-qr');
+      const params = new URLSearchParams();
+      if (shop?.slug) params.append('shop', shop.slug);
+      else if (shopSlug) params.append('shop', shopSlug);
+      const result = await api.get(`/settings/public/upi-qr?${params.toString()}`);
       if (result.success && result.data.url) setUpiQrUrl(result.data.url);
     } catch {}
   };
@@ -907,13 +929,29 @@ export default function CustomerPortal() {
     setPriceData(null);
   };
 
+  if (shopSlug && !shop && !shopError) {
+    return (
+      <Container maxWidth="sm" sx={{ py: 8, textAlign: 'center' }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
+
+  if (shopSlug && shopError) {
+    return (
+      <Container maxWidth="sm" sx={{ py: 8 }}>
+        <Alert severity="error">Shop not found. Please check the link and try again.</Alert>
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="sm" sx={{ py: { xs: 2, sm: 4 }, px: { xs: 1.5, sm: 3 } }}>
       <Typography variant="h5" align="center" gutterBottom sx={{ fontWeight: 700, fontSize: { xs: '1.4rem', sm: '1.8rem' } }}>
-        Patel AutoPrint
+        {shop?.name || 'Patel AutoPrint'}
       </Typography>
       <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 2 }}>
-        Print Shop - Self Service
+        {shop ? `${shop.name} - Print Shop` : 'Print Shop - Self Service'}
       </Typography>
 
       <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 3 }}>

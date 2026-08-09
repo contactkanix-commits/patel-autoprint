@@ -49,6 +49,42 @@ async function ensureAgentKeys() {
   }
 }
 
+// Helper: turn a shop name into a URL slug (lowercase, dashes for spaces/symbols)
+function slugify(text) {
+  return (text || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Helper: assign unique slugs to shops that don't have one
+async function ensureShopSlugs() {
+  const shops = await prisma.shop.findMany({ where: { slug: null }, select: { id: true, name: true } });
+  for (const s of shops) {
+    let base = slugify(s.name) || 'shop';
+    let slug = base;
+    let n = 2;
+    while (await prisma.shop.findUnique({ where: { slug } })) {
+      slug = `${base}-${n++}`;
+    }
+    await prisma.shop.update({ where: { id: s.id }, data: { slug } });
+  }
+  if (shops.length > 0) {
+    console.log(`Generated slugs for ${shops.length} shop(s)`);
+  }
+}
+
+// Helper: resolve a shop by slug, id, or name
+async function findShopByRef(ref) {
+  if (!ref) return prisma.shop.findFirst();
+  const bySlug = await prisma.shop.findUnique({ where: { slug: String(ref).toLowerCase() } });
+  if (bySlug) return bySlug;
+  const byId = await prisma.shop.findUnique({ where: { id: ref } });
+  if (byId) return byId;
+  return prisma.shop.findFirst({ where: { name: ref } });
+}
+
 // Helper: ensure every shop has a subscription record (defaults to free)
 async function ensureSubscriptions() {
   const shops = await prisma.shop.findMany({ where: { subscription: null }, select: { id: true } });
@@ -697,8 +733,8 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
     throw new AppError('No files uploaded', 400, 'NO_FILES');
   }
 
-  // Use the default shop
-  const shop = await prisma.shop.findFirst();
+  // Resolve the target shop from the portal link (/s/:slug) or fall back to the default shop
+  const shop = await findShopByRef(req.body.shopId || req.body.shopRef || req.query.shop);
   if (!shop) throw new AppError('No shop configured', 500, 'NO_SHOP');
   const shopId = shop.id;
 
@@ -1276,9 +1312,24 @@ app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
 }));
 
 app.get('/api/settings/public/upi-qr', asyncHandler(async (req, res) => {
-  const shop = await prisma.shop.findFirst();
+  const shop = await findShopByRef(req.query.shop);
   const url = (shop?.settings || {}).upiQrUrl || '';
   res.json({ success: true, data: { url } });
+}));
+
+// Public info for a shop's customer portal (/s/:slug)
+app.get('/api/guest/shop/:ref', asyncHandler(async (req, res) => {
+  const shop = await findShopByRef(req.params.ref);
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+  res.json({
+    success: true,
+    data: {
+      id: shop.id,
+      name: shop.name,
+      slug: shop.slug,
+      settings: shop.settings || {},
+    },
+  });
 }));
 
 app.post('/api/settings/upi-qr', authenticate, qrUpload.single('qr'), asyncHandler(async (req, res) => {
@@ -1623,8 +1674,16 @@ app.post('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(
     throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
   }
 
+  let slug = req.body.slug ? slugify(req.body.slug) : slugify(name);
+  if (!slug) slug = 'shop';
+  const baseSlug = slug;
+  let n = 2;
+  while (await prisma.shop.findUnique({ where: { slug } })) {
+    slug = `${baseSlug}-${n++}`;
+  }
+
   const shop = await prisma.shop.create({
-    data: { name, agentKey: generateAgentKey() },
+    data: { name, slug, agentKey: generateAgentKey() },
   });
 
   const passwordHash = await bcrypt.hash(adminPassword, 10);
@@ -1654,6 +1713,7 @@ app.post('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(
     data: {
       id: shop.id,
       name: shop.name,
+      slug: shop.slug,
       agentKey: shop.agentKey,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       subscription,
@@ -1669,9 +1729,18 @@ app.put('/api/superadmin/shops/:id', authenticate, requireSuperAdmin, asyncHandl
   const shop = await prisma.shop.findUnique({ where: { id } });
   if (!shop) throw new AppError('Shop not found', 404, 'NOT_FOUND');
 
+  let slug;
+  if (req.body.slug) {
+    slug = slugify(req.body.slug);
+    const clash = await prisma.shop.findFirst({ where: { slug, id: { not: id } } });
+    if (clash) throw new AppError('Slug already in use', 409, 'SLUG_EXISTS');
+  } else if (name && name !== shop.name) {
+    slug = slugify(name);
+  }
+
   const updatedShop = await prisma.shop.update({
     where: { id },
-    data: { name: name || shop.name },
+    data: { name: name || shop.name, ...(slug ? { slug } : {}) },
   });
 
   const subData = {};
@@ -1766,6 +1835,7 @@ const start = async () => {
     console.log('Database connected successfully');
 
     await ensureAgentKeys();
+    await ensureShopSlugs();
     await ensureSubscriptions();
 
     const server = createServer(app);

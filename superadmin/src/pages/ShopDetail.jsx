@@ -37,6 +37,7 @@ import {
   Print as PrintersIcon,
   People as UsersIcon,
   Description as JobsIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../api';
@@ -174,6 +175,35 @@ export default function ShopDetail() {
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                   Used by the desktop app for one-time activation. Rotating the key disables all existing activations.
                 </Typography>
+              </CardContent>
+            </Card>
+
+            <Card sx={{ mt: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Customer Portal Link
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Share this link with customers. Orders placed here appear in this shop's desktop app.
+                </Typography>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                  <Typography
+                    component="a"
+                    href={`${window.location.origin}/s/${shop.slug || ''}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                  >
+                    {window.location.origin}/s/{shop.slug || '—'}
+                  </Typography>
+                  {shop.slug && (
+                    <Tooltip title="Copy">
+                      <IconButton size="small" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/s/${shop.slug}`)}>
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Stack>
               </CardContent>
             </Card>
 

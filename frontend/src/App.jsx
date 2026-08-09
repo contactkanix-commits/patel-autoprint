@@ -65,6 +65,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/portal" element={<CustomerPortal />} />
+      <Route path="/s/:slug" element={<CustomerPortal />} />
       <Route path="/tracking" element={<OrderTracking />} />
     </Routes>
   );
