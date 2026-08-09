@@ -11,21 +11,22 @@ import {
   TableRow,
   Paper,
   Switch,
+  Chip,
   CircularProgress,
   Alert,
-  Chip,
   Tooltip,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
   Print as PrintIcon,
   Star as StarIcon,
   Circle as CircleIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
+
+const PAPER_SIZES = ['A4', 'A3', 'A5', 'A2', 'Letter', 'Legal', 'Tabloid'];
 
 function StatusChip({ status }) {
   const map = {
@@ -56,32 +57,32 @@ function StatusChip({ status }) {
   );
 }
 
-function CapabilityChip({ value }) {
-  return (
-    <Chip
-      size="small"
-      icon={value ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
-      label={value ? 'Yes' : 'No'}
-      color={value ? 'success' : 'default'}
-      sx={{ borderRadius: 12, fontWeight: 500 }}
-    />
-  );
-}
-
 export default function PrintersPage() {
   const [connected, setConnected] = useState([]);
   const [systemPrinters, setSystemPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyName, setBusyName] = useState(null);
+  const [drafts, setDrafts] = useState({});
 
-  const connectedByName = useCallback(() => {
-    const map = {};
-    connected.forEach((p) => {
-      map[p.name] = p;
-    });
-    return map;
-  }, [connected]);
+  const getDraft = useCallback(
+    (name) =>
+      drafts[name] || { color: false, duplex: false, paperSizes: ['A4'] },
+    [drafts]
+  );
+
+  const updateDraft = useCallback((name, patch) => {
+    setDrafts((prev) => ({
+      ...prev,
+      [name]: {
+        color: false,
+        duplex: false,
+        paperSizes: ['A4'],
+        ...prev[name],
+        ...patch,
+      },
+    }));
+  }, []);
 
   const loadConnected = async () => {
     const result = await api.get('/printers');
@@ -124,14 +125,19 @@ export default function PrintersPage() {
 
   const handleToggleConnect = async (sys, connect) => {
     await runBusy(sys.name, async () => {
-      const map = connectedByName();
+      const map = {};
+      connected.forEach((p) => {
+        map[p.name] = p;
+      });
       const existing = map[sys.name];
       if (connect && !existing) {
+        const draft = getDraft(sys.name);
         await api.post('/printers', {
           name: sys.name,
           ip: sys.portName || null,
-          colorSupport: sys.color,
-          duplexSupport: sys.duplex,
+          colorSupport: draft.color,
+          duplexSupport: draft.duplex,
+          paperSizes: draft.paperSizes,
         });
         toast.success(`Connected "${sys.name}"`);
       } else if (!connect && existing) {
@@ -142,28 +148,28 @@ export default function PrintersPage() {
     });
   };
 
-  const handleToggleCapability = async (record, field) => {
+  const handleToggleConnectedOption = async (record, field, value) => {
     await runBusy(record.name, async () => {
-      await api.put(`/printers/${record.id}`, {
-        [field]: !record[field],
-      });
+      await api.put(`/printers/${record.id}`, { [field]: value });
       toast.success('Printer updated');
       await loadConnected();
     });
   };
 
-  const map = connectedByName();
+  const map = {};
+  connected.forEach((p) => {
+    map[p.name] = p;
+  });
+
   const rows = systemPrinters.map((sys) => ({
     id: sys.name,
     name: sys.name,
     portName: sys.portName,
     sub: `${sys.driverName}${sys.portName ? `  ·  ${sys.portName}` : ''}`,
     status: sys.status,
-    color: map[sys.name]?.colorSupport ?? sys.color,
-    duplex: map[sys.name]?.duplexSupport ?? sys.duplex,
+    isDefault: sys.isDefault,
     connected: !!map[sys.name],
     record: map[sys.name] || null,
-    isDefault: sys.isDefault,
   }));
 
   // Show connected printers that are no longer detected on this PC so the
@@ -173,13 +179,12 @@ export default function PrintersPage() {
       rows.push({
         id: rec.name,
         name: rec.name,
+        portName: rec.ip || '',
         sub: 'Not detected on this PC',
         status: rec.status || 'UNKNOWN',
-        color: rec.colorSupport,
-        duplex: rec.duplexSupport,
+        isDefault: false,
         connected: true,
         record: rec,
-        isDefault: false,
       });
     }
   });
@@ -192,9 +197,10 @@ export default function PrintersPage() {
             <PrintIcon sx={{ fontSize: 32, color: 'primary.main' }} />
             <Typography variant="h5" fontWeight="600">Printers</Typography>
           </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 680 }}>
             Printers installed on this PC are detected automatically. Switch on the ones you want to
-            use with Patel AutoPrint — jobs will be sent to the selected printer by name.
+            use with Patel AutoPrint, then tick what each printer can do (color, double-sided, and
+            the paper sizes it supports). Jobs are only sent to printers that can handle them.
           </Typography>
         </Box>
         <Button
@@ -228,95 +234,150 @@ export default function PrintersPage() {
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Printer</TableCell>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper', minWidth: 200 }}>Printer</TableCell>
                   <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Status</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Color</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Duplex</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Use with Patel AutoPrint</TableCell>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Color</TableCell>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Duplex</TableCell>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Paper Sizes</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Connected</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    hover
-                    sx={{
-                      transition: 'all 0.2s ease',
-                      '&:hover': { bgcolor: 'action.hover', transform: 'translateX(4px)' },
-                    }}
-                  >
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        <PrintIcon color={row.connected ? 'primary' : 'disabled'} sx={{ fontSize: 24 }} />
-                        <Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body1" fontWeight={500}>{row.name}</Typography>
-                            {row.isDefault && (
-                              <Tooltip title="Windows default printer">
-                                <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
-                              </Tooltip>
-                            )}
+                {rows.map((row) => {
+                  const draft = row.connected ? {} : getDraft(row.name);
+                  const color = row.connected ? row.record.colorSupport : draft.color;
+                  const duplex = row.connected ? row.record.duplexSupport : draft.duplex;
+                  const paperSizes = row.connected
+                    ? row.record.paperSizes || ['A4']
+                    : draft.paperSizes;
+
+                  const setColor = (v) =>
+                    row.connected
+                      ? handleToggleConnectedOption(row.record, 'colorSupport', v)
+                      : updateDraft(row.name, { color: v });
+                  const setDuplex = (v) =>
+                    row.connected
+                      ? handleToggleConnectedOption(row.record, 'duplexSupport', v)
+                      : updateDraft(row.name, { duplex: v });
+                  const setPaperSize = (size, on) => {
+                    const next = on
+                      ? [...new Set([...paperSizes, size])]
+                      : paperSizes.filter((s) => s !== size);
+                    if (row.connected) {
+                      handleToggleConnectedOption(row.record, 'paperSizes', next.length ? next : ['A4']);
+                    } else {
+                      updateDraft(row.name, { paperSizes: next.length ? next : ['A4'] });
+                    }
+                  };
+
+                  return (
+                    <TableRow
+                      key={row.id}
+                      hover
+                      sx={{
+                        transition: 'all 0.2s ease',
+                        '&:hover': { bgcolor: 'action.hover', transform: 'translateX(4px)' },
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                          <PrintIcon color={row.connected ? 'primary' : 'disabled'} sx={{ fontSize: 24 }} />
+                          <Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body1" fontWeight={500}>{row.name}</Typography>
+                              {row.isDefault && (
+                                <Tooltip title="Windows default printer">
+                                  <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                                </Tooltip>
+                              )}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {row.sub}
+                            </Typography>
                           </Box>
-                          <Typography variant="caption" color="text.secondary">
-                            {row.sub}
-                          </Typography>
                         </Box>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <StatusChip status={row.status} />
-                    </TableCell>
-                    <TableCell align="center">
-                      {row.connected ? (
-                        <Tooltip title={row.color ? 'Color enabled' : 'Color disabled'}>
-                          <Switch
-                            size="small"
-                            checked={row.color}
-                            disabled={busyName === row.name}
-                            onChange={() => handleToggleCapability(row.record, 'colorSupport')}
-                          />
-                        </Tooltip>
-                      ) : (
-                        <CapabilityChip value={row.color} />
-                      )}
-                    </TableCell>
-                    <TableCell align="center">
-                      {row.connected ? (
-                        <Tooltip title={row.duplex ? 'Double-sided enabled' : 'Double-sided disabled'}>
-                          <Switch
-                            size="small"
-                            checked={row.duplex}
-                            disabled={busyName === row.name}
-                            onChange={() => handleToggleCapability(row.record, 'duplexSupport')}
-                          />
-                        </Tooltip>
-                      ) : (
-                        <CapabilityChip value={row.duplex} />
-                      )}
-                    </TableCell>
-                    <TableCell align="right">
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="body2" color={row.connected ? 'success.main' : 'text.secondary'} fontWeight={500}>
-                          {row.connected ? 'Connected' : 'Not connected'}
-                        </Typography>
-                        <Switch
-                          checked={row.connected}
-                          disabled={busyName === row.name}
-                          onChange={(e) => handleToggleConnect({ name: row.name, portName: row.portName, color: row.color, duplex: row.duplex }, e.target.checked)}
-                          color="primary"
+                      </TableCell>
+                      <TableCell>
+                        <StatusChip status={row.status} />
+                      </TableCell>
+                      <TableCell>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={color}
+                              disabled={busyName === row.name}
+                              onChange={(e) => setColor(e.target.checked)}
+                            />
+                          }
+                          label={<Typography variant="caption">Color</Typography>}
+                          sx={{ m: 0 }}
                         />
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              size="small"
+                              checked={duplex}
+                              disabled={busyName === row.name}
+                              onChange={(e) => setDuplex(e.target.checked)}
+                            />
+                          }
+                          label={<Typography variant="caption">Duplex</Typography>}
+                          sx={{ m: 0 }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 340 }}>
+                          {PAPER_SIZES.map((size) => {
+                            const selected = paperSizes.includes(size);
+                            return (
+                              <Chip
+                                key={size}
+                                size="small"
+                                label={size}
+                                clickable
+                                disabled={busyName === row.name}
+                                color={selected ? 'primary' : 'default'}
+                                variant={selected ? 'filled' : 'outlined'}
+                                onClick={() => setPaperSize(size, !selected)}
+                                sx={{ borderRadius: 12, fontWeight: 500 }}
+                              />
+                            );
+                          })}
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" color={row.connected ? 'success.main' : 'text.secondary'} fontWeight={500}>
+                            {row.connected ? 'Connected' : 'Not connected'}
+                          </Typography>
+                          <Switch
+                            checked={row.connected}
+                            disabled={busyName === row.name}
+                            onChange={(e) =>
+                              handleToggleConnect(
+                                { name: row.name, portName: row.portName },
+                                e.target.checked
+                              )
+                            }
+                            color="primary"
+                          />
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
 
           <Alert severity="info" sx={{ borderRadius: 2, mt: 3 }}>
-            Color and duplex support are detected automatically from the printer driver. You can
-            override them with the switches while a printer is connected. Only connected printers
-            appear in the order print dialogs.
+            Color, double-sided and paper-size support are set by you — they are not detected
+            automatically, because drivers can report capabilities incorrectly. Only connected
+            printers appear in the order print dialogs.
           </Alert>
         </>
       )}

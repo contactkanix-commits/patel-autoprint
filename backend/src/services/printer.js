@@ -124,7 +124,7 @@ function routeJob(job, printers, modePrinterCache) {
     return { ...job, assignedPrinter: modePrinterCache[mode] };
   }
 
-  const picked = routeJobForMode(mode, printers);
+  const picked = routeJobForMode(mode, printers, job.paperSize);
 
   if (modePrinterCache) {
     modePrinterCache[mode] = picked;
@@ -133,13 +133,25 @@ function routeJob(job, printers, modePrinterCache) {
   return { ...job, assignedPrinter: picked };
 }
 
-function routeJobForMode(mode, printers) {
+function routeJobForMode(mode, printers, paperSize) {
   const isBw = mode === 'bw';
   let candidates = printers.filter(p => (isBw ? !p.colorSupport : p.colorSupport) && p.status === 'ONLINE');
 
   if (candidates.length === 0) {
     candidates = printers.filter(p => p.status === 'ONLINE');
   }
+
+  // Prefer printers the owner has ticked as supporting the job's paper size.
+  if (paperSize && candidates.length > 0) {
+    const sizeCandidates = candidates.filter(p => {
+      const sizes = Array.isArray(p.paperSizes) ? p.paperSizes : [];
+      return sizes.includes(paperSize);
+    });
+    if (sizeCandidates.length > 0) {
+      candidates = sizeCandidates;
+    }
+  }
+
   if (candidates.length === 0) {
     candidates = printers;
   }

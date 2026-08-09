@@ -3,7 +3,7 @@ const { execFile } = require('child_process');
 function listSystemPrinters() {
   return new Promise((resolve) => {
     const script =
-      'Get-CimInstance Win32_Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Capabilities, Default | ConvertTo-Json -Compress';
+      'Get-CimInstance Win32_Printer | Select-Object Name, DriverName, PortName, PrinterStatus, Default | ConvertTo-Json -Compress';
 
     execFile(
       'powershell.exe',
@@ -31,10 +31,6 @@ function listSystemPrinters() {
 }
 
 function normalizePrinter(p) {
-  const caps = (Array.isArray(p.Capabilities) ? p.Capabilities : [])
-    .map((c) => Number(c))
-    .filter((c) => Number.isFinite(c));
-
   const name = String(p.Name || '');
   const driver = String(p.DriverName || '');
   const port = String(p.PortName || '');
@@ -50,8 +46,6 @@ function normalizePrinter(p) {
     driverName: driver,
     portName: port,
     status,
-    color: caps.includes(3),
-    duplex: caps.includes(4),
     isDefault: !!p.Default,
     virtual: isVirtualPrinter(name, driver, port),
   };
