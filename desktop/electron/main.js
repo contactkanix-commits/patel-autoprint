@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, session, ipcMain, Tray, Menu, nativeImage } =
 const path = require('path');
 const fs = require('fs');
 const { PrintAgent } = require('./agent');
+const { listSystemPrinters } = require('./printers');
 
 const isDev = !app.isPackaged;
 
@@ -152,6 +153,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('agent:get-status', () => agent.snapshot());
+
+  ipcMain.handle('printers:list-system', () => listSystemPrinters());
 }
 
 app.whenReady().then(() => {

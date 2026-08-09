@@ -24,4 +24,7 @@ contextBridge.exposeInMainWorld('patelApp', {
       return () => ipcRenderer.removeListener('agent:auth-expired', listener);
     },
   },
+  printers: {
+    listSystem: () => ipcRenderer.invoke('printers:list-system'),
+  },
 });

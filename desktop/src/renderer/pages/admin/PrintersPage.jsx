@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -10,24 +10,16 @@ import {
   TableHead,
   TableRow,
   Paper,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
   Switch,
-  FormControlLabel,
   CircularProgress,
   Alert,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
+  Refresh as RefreshIcon,
   Print as PrintIcon,
-  NetworkCheck as NetworkCheckIcon,
+  Star as StarIcon,
   Circle as CircleIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
@@ -35,293 +27,299 @@ import {
 import toast from 'react-hot-toast';
 import api from '../../api';
 
-const emptyPrinter = { name: '', ip: '', colorSupport: false, duplexSupport: false };
+function StatusChip({ status }) {
+  const map = {
+    ONLINE: { color: 'success', dot: true },
+    PRINTING: { color: 'primary', dot: true },
+    OFFLINE: { color: 'error', dot: false },
+    UNKNOWN: { color: 'default', dot: false },
+  };
+  const { color, dot } = map[status] || map.UNKNOWN;
+  return (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        minWidth: 84,
+        height: 28,
+        borderRadius: '20px',
+        bgcolor: `${color}.light`,
+        color: `${color}.dark`,
+        px: 1.5,
+        fontWeight: 500,
+        fontSize: 12,
+      }}
+    >
+      {dot && <CircleIcon sx={{ fontSize: 8, mr: 1 }} />}
+      {status}
+    </Box>
+  );
+}
+
+function CapabilityChip({ value }) {
+  return (
+    <Chip
+      size="small"
+      icon={value ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
+      label={value ? 'Yes' : 'No'}
+      color={value ? 'success' : 'default'}
+      sx={{ borderRadius: 12, fontWeight: 500 }}
+    />
+  );
+}
 
 export default function PrintersPage() {
-  const [printers, setPrinters] = useState([]);
+  const [connected, setConnected] = useState([]);
+  const [systemPrinters, setSystemPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingPrinter, setEditingPrinter] = useState(null);
-  const [formData, setFormData] = useState(emptyPrinter);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busyName, setBusyName] = useState(null);
 
-  useEffect(() => {
-    fetchPrinters();
-  }, []);
+  const connectedByName = useCallback(() => {
+    const map = {};
+    connected.forEach((p) => {
+      map[p.name] = p;
+    });
+    return map;
+  }, [connected]);
 
-  const fetchPrinters = async () => {
+  const loadConnected = async () => {
+    const result = await api.get('/printers');
+    if (result.success) {
+      setConnected(result.data?.printers || []);
+    }
+  };
+
+  const loadSystem = async () => {
+    if (!window.patelApp?.printers) return;
+    setSystemPrinters(await window.patelApp.printers.listSystem());
+  };
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
     try {
-      const result = await api.get('/printers');
-      if (result.success) {
-        setPrinters(result.data?.printers || []);
-      }
+      await Promise.all([loadConnected(), loadSystem()]);
     } catch {
-      // Error handled by interceptor
+      // Handled by interceptor
     } finally {
+      setRefreshing(false);
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleOpenDialog = (printer = null) => {
-    if (printer) {
-      setEditingPrinter(printer);
-      setFormData({
-        name: printer.name,
-        ip: printer.ip || '',
-        colorSupport: printer.colorSupport,
-        duplexSupport: printer.duplexSupport,
-      });
-    } else {
-      setEditingPrinter(null);
-      setFormData(emptyPrinter);
-    }
-    setDialogOpen(true);
-  };
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-  const handleCloseDialog = () => {
-    setDialogOpen(false);
-    setEditingPrinter(null);
-    setFormData(emptyPrinter);
-  };
-
-  const handleSave = async () => {
-    if (!formData.name) {
-      toast.error('Printer name is required');
-      return;
-    }
-    setSaving(true);
+  const runBusy = async (name, fn) => {
+    setBusyName(name);
     try {
-      if (editingPrinter) {
-        await api.put(`/printers/${editingPrinter.id}`, formData);
-        toast.success('Printer updated');
-      } else {
-        await api.post('/printers', formData);
-        toast.success('Printer added');
-      }
-      fetchPrinters();
-      handleCloseDialog();
+      await fn();
     } catch {
-      toast.error('Failed to save printer');
+      // Handled by interceptor
     } finally {
-      setSaving(false);
+      setBusyName(null);
     }
   };
 
-  const handleDelete = async (printer) => {
-    if (!window.confirm(`Delete printer "${printer.name}"?`)) return;
-    try {
-      await api.delete(`/printers/${printer.id}`);
-      toast.success('Printer deleted');
-      fetchPrinters();
-    } catch {
-      toast.error('Failed to delete printer');
-    }
+  const handleToggleConnect = async (sys, connect) => {
+    await runBusy(sys.name, async () => {
+      const map = connectedByName();
+      const existing = map[sys.name];
+      if (connect && !existing) {
+        await api.post('/printers', {
+          name: sys.name,
+          ip: sys.portName || null,
+          colorSupport: sys.color,
+          duplexSupport: sys.duplex,
+        });
+        toast.success(`Connected "${sys.name}"`);
+      } else if (!connect && existing) {
+        await api.delete(`/printers/${existing.id}`);
+        toast.success(`Disconnected "${sys.name}"`);
+      }
+      await loadConnected();
+    });
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  const handleToggleCapability = async (record, field) => {
+    await runBusy(record.name, async () => {
+      await api.put(`/printers/${record.id}`, {
+        [field]: !record[field],
+      });
+      toast.success('Printer updated');
+      await loadConnected();
+    });
+  };
+
+  const map = connectedByName();
+  const rows = systemPrinters.map((sys) => ({
+    id: sys.name,
+    name: sys.name,
+    portName: sys.portName,
+    sub: `${sys.driverName}${sys.portName ? `  ·  ${sys.portName}` : ''}`,
+    status: sys.status,
+    color: map[sys.name]?.colorSupport ?? sys.color,
+    duplex: map[sys.name]?.duplexSupport ?? sys.duplex,
+    connected: !!map[sys.name],
+    record: map[sys.name] || null,
+    isDefault: sys.isDefault,
+  }));
+
+  // Show connected printers that are no longer detected on this PC so the
+  // owner can still disconnect them.
+  connected.forEach((rec) => {
+    if (!systemPrinters.some((s) => s.name === rec.name)) {
+      rows.push({
+        id: rec.name,
+        name: rec.name,
+        sub: 'Not detected on this PC',
+        status: rec.status || 'UNKNOWN',
+        color: rec.colorSupport,
+        duplex: rec.duplexSupport,
+        connected: true,
+        record: rec,
+        isDefault: false,
+      });
+    }
+  });
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <PrintIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-          <Typography variant="h5" fontWeight="600">Printers</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+        <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PrintIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+            <Typography variant="h5" fontWeight="600">Printers</Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
+            Printers installed on this PC are detected automatically. Switch on the ones you want to
+            use with Patel AutoPrint — jobs will be sent to the selected printer by name.
+          </Typography>
         </Box>
         <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={refresh}
+          disabled={refreshing}
           sx={{ borderRadius: 2, textTransform: 'none', px: 3 }}
         >
-          Add Printer
+          {refreshing ? 'Scanning...' : 'Refresh Printers'}
         </Button>
       </Box>
 
-      {printers.length === 0 ? (
-        <Alert
-          severity="info"
-          sx={{
-            borderRadius: 2,
-            '& .MuiAlert-icon': { fontSize: 40, mr: 1 }
-          }}
-        >
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : rows.length === 0 ? (
+        <Alert severity="info" sx={{ borderRadius: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             <PrintIcon sx={{ mr: 1, fontSize: 32 }} />
-            No printers configured. Add a printer to get started.
+            No printers detected on this PC. Install a printer in Windows Settings, then refresh.
           </Box>
         </Alert>
       ) : (
-        <TableContainer
-          component={Paper}
-          sx={{
-            borderRadius: 2,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-            overflow: 'hidden'
-          }}
-        >
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>IP Address</TableCell>
-                <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Status</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Color</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Duplex</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {printers.map((printer) => (
-                <TableRow
-                  key={printer.id}
-                  hover={true}
-                  sx={{
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      bgcolor: 'action.hover',
-                      transform: 'translateX(4px)'
-                    }
-                  }}
-                >
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <PrintIcon color="primary" sx={{ fontSize: 24 }} />
-                      <Typography variant="body1" fontWeight={500}>{printer.name}</Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <NetworkCheckIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>{printer.ip || '-'}</Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          minWidth: 80,
-                          height: 32,
-                          borderRadius: '20px',
-                          bgcolor: printer.status === 'ONLINE' ? 'success.light' : 'error.light',
-                          color: printer.status === 'ONLINE' ? 'success.dark' : 'error.dark',
-                          px: 2,
-                          fontWeight: 500,
-                          fontSize: 12,
-                        }}
-                      >
-                        {printer.status === 'ONLINE' && <CircleIcon sx={{ fontSize: 8, mr: 1 }} />}
-                        {printer.status || 'UNKNOWN'}
-                      </Box>
-                    </Box>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      size="small"
-                      icon={printer.colorSupport ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
-                      label={printer.colorSupport ? 'Enabled' : 'Disabled'}
-                      color={printer.colorSupport ? 'success' : 'default'}
-                      sx={{ borderRadius: 12, fontWeight: 500 }}
-                    />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Chip
-                      size="small"
-                      icon={printer.duplexSupport ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <CancelIcon sx={{ fontSize: 16 }} />}
-                      label={printer.duplexSupport ? 'Enabled' : 'Disabled'}
-                      color={printer.duplexSupport ? 'success' : 'default'}
-                      sx={{ borderRadius: 12, fontWeight: 500 }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5 }}>
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenDialog(printer)}
-                        sx={{
-                          bgcolor: 'action.hover',
-                          '&:hover': { bgcolor: 'primary.light', color: 'primary.main' }
-                        }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => handleDelete(printer)}
-                        sx={{
-                          bgcolor: 'action.hover',
-                          '&:hover': { bgcolor: 'error.light' }
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Box>
-                  </TableCell>
+        <>
+          <TableContainer
+            component={Paper}
+            sx={{ borderRadius: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}
+          >
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Printer</TableCell>
+                  <TableCell sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Status</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Color</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Duplex</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, bgcolor: 'background.paper' }}>Use with Patel AutoPrint</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
+              </TableHead>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    hover
+                    sx={{
+                      transition: 'all 0.2s ease',
+                      '&:hover': { bgcolor: 'action.hover', transform: 'translateX(4px)' },
+                    }}
+                  >
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <PrintIcon color={row.connected ? 'primary' : 'disabled'} sx={{ fontSize: 24 }} />
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body1" fontWeight={500}>{row.name}</Typography>
+                            {row.isDefault && (
+                              <Tooltip title="Windows default printer">
+                                <StarIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                              </Tooltip>
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary">
+                            {row.sub}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <StatusChip status={row.status} />
+                    </TableCell>
+                    <TableCell align="center">
+                      {row.connected ? (
+                        <Tooltip title={row.color ? 'Color enabled' : 'Color disabled'}>
+                          <Switch
+                            size="small"
+                            checked={row.color}
+                            disabled={busyName === row.name}
+                            onChange={() => handleToggleCapability(row.record, 'colorSupport')}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <CapabilityChip value={row.color} />
+                      )}
+                    </TableCell>
+                    <TableCell align="center">
+                      {row.connected ? (
+                        <Tooltip title={row.duplex ? 'Double-sided enabled' : 'Double-sided disabled'}>
+                          <Switch
+                            size="small"
+                            checked={row.duplex}
+                            disabled={busyName === row.name}
+                            onChange={() => handleToggleCapability(row.record, 'duplexSupport')}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <CapabilityChip value={row.duplex} />
+                      )}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" color={row.connected ? 'success.main' : 'text.secondary'} fontWeight={500}>
+                          {row.connected ? 'Connected' : 'Not connected'}
+                        </Typography>
+                        <Switch
+                          checked={row.connected}
+                          disabled={busyName === row.name}
+                          onChange={(e) => handleToggleConnect({ name: row.name, portName: row.portName, color: row.color, duplex: row.duplex }, e.target.checked)}
+                          color="primary"
+                        />
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>{editingPrinter ? 'Edit Printer' : 'Add Printer'}</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            label="Printer Name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="IP Address"
-            value={formData.ip}
-            onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
-            margin="normal"
-            placeholder="e.g. 192.168.1.100"
-          />
-          <Box sx={{ mt: 2 }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.colorSupport}
-                  onChange={(e) => setFormData({ ...formData, colorSupport: e.target.checked })}
-                />
-              }
-              label="Supports Color Printing"
-            />
-          </Box>
-          <Box>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.duplexSupport}
-                  onChange={(e) => setFormData({ ...formData, duplexSupport: e.target.checked })}
-                />
-              }
-              label="Supports Duplex (Double-sided)"
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Cancel</Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : editingPrinter ? 'Update' : 'Add'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+          <Alert severity="info" sx={{ borderRadius: 2, mt: 3 }}>
+            Color and duplex support are detected automatically from the printer driver. You can
+            override them with the switches while a printer is connected. Only connected printers
+            appear in the order print dialogs.
+          </Alert>
+        </>
+      )}
     </Box>
   );
 }
