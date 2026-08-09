@@ -12,22 +12,23 @@ datasource db {
 // ============================================
 
 model Shop {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String?  @unique
-  agentKey  String?  @unique
-  settings  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(uuid())
+  name            String
+  slug            String?  @unique
+  agentKey        String?  @unique
+  settings        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  users         User[]
-  customers     Customer[]
-  orders        Order[]
-  printers      Printer[]
-  pricingRules  PricingRule[]
-  orderFiles    OrderFile[]
-  printJobs     PrintJob[]
-  subscription  Subscription?
+  users             User[]
+  customers         Customer[]
+  orders            Order[]
+  printers          Printer[]
+  pricingRules      PricingRule[]
+  orderFiles        OrderFile[]
+  printJobs         PrintJob[]
+  subscription      Subscription?
+  whatsappSessions  WhatsAppSession[]
 
   @@map("shops")
 }
@@ -176,4 +177,22 @@ model PricingRule {
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@map("pricing_rules")
+}
+
+model WhatsAppSession {
+  id            String   @id @default(uuid())
+  token         String   @unique
+  shopId        String
+  customerPhone String
+  customerName  String?
+  files         Json     @default("[]")
+  status        String   @default("NEW") // NEW, CLAIMED, EXPIRED
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  claimedAt     DateTime?
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+  @@map("whatsapp_sessions")
 }

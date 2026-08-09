@@ -28,6 +28,16 @@ contextBridge.exposeInMainWorld('patelApp', {
   printers: {
     listSystem: () => ipcRenderer.invoke('printers:list-system'),
   },
+  whatsapp: {
+    getStatus: () => ipcRenderer.invoke('whatsapp:get-status'),
+    start: () => ipcRenderer.invoke('whatsapp:start'),
+    logout: () => ipcRenderer.invoke('whatsapp:logout'),
+    onStatus: (callback) => {
+      const listener = (_e, data) => callback(data);
+      ipcRenderer.on('whatsapp:status', listener);
+      return () => ipcRenderer.removeListener('whatsapp:status', listener);
+    },
+  },
   updates: {
     check: () => ipcRenderer.invoke('app:check-for-updates'),
     getStatus: () => ipcRenderer.invoke('app:get-update-status'),

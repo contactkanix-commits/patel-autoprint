@@ -22,6 +22,7 @@ const { determineFlipDirection } = require('./services/duplex');
 const { discoverPrinters, routeJob } = require('./services/printer');
 const { processOrder, processPDF, parsePageRange, calculateSheetCount, countPagesFromRange, processAndDispatchOrder } = require('./services/printProcessor');
 
+
 // Helper: get next token for a shop
 async function getNextToken(shopId) {
   const maxOrder = await prisma.order.findFirst({
@@ -1008,6 +1009,113 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
 }));
 
 // ============================================
+// WHATSAPP FILE RECEIVING (shop's own number)
+// ============================================
+// The desktop app pairs to the shop's own WhatsApp number (Baileys
+// multi-device). It uploads files customers send to that number to
+// /api/agent/whatsapp/inbox and auto-replies with the link returned here.
+
+// Claim a WhatsApp job from the portal (?wa=<token>): creates the order
+// and reuses the same analyze pipeline as a normal portal upload.
+app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
+  const session = await prisma.whatsAppSession.findUnique({ where: { token: req.params.token } });
+  if (!session) throw new AppError('WhatsApp job not found', 404, 'WA_SESSION_NOT_FOUND');
+  if (session.status !== 'NEW') {
+    throw new AppError('This WhatsApp job has already been used. Please send your files again.', 409, 'WA_SESSION_USED');
+  }
+  if (session.expiresAt < new Date()) {
+    await prisma.whatsAppSession.update({ where: { id: session.id }, data: { status: 'EXPIRED' } });
+    throw new AppError('This WhatsApp job has expired. Please send your files again.', 410, 'WA_SESSION_EXPIRED');
+  }
+
+  const sessionFiles = session.files || [];
+  if (sessionFiles.length === 0) {
+    throw new AppError('No files found in this WhatsApp job', 400, 'WA_NO_FILES');
+  }
+
+  const shopId = session.shopId;
+  let customer = await prisma.customer.findFirst({
+    where: { shopId, phone: session.customerPhone },
+  });
+  if (!customer) {
+    customer = await prisma.customer.create({
+      data: {
+        shopId,
+        name: session.customerName || 'WhatsApp Customer',
+        phone: session.customerPhone,
+      },
+    });
+  }
+
+  const token = await getNextToken(shopId);
+  const order = await prisma.order.create({
+    data: {
+      shopId,
+      token,
+      customerId: customer.id,
+      notes: 'Received via WhatsApp',
+    },
+  });
+
+  let created = 0;
+  for (const file of sessionFiles) {
+    if (!fs.existsSync(file.storagePath)) continue;
+    const fileType = getFileType(file.originalName);
+    const analysis = await analyzeFile(file.storagePath, fileType);
+
+    const defaultSettings = {
+      paperSize: analysis.suggestedPaperSize || 'A4',
+      orientation: analysis.orientation || 'auto',
+      colorMode: isImageFileType({ fileType }) ? 'color' : 'bw',
+      printStyle: 'single',
+      copies: 1,
+      pageRange: 'all',
+      pagesPerSheet: 1,
+      sections: [],
+    };
+
+    await prisma.orderFile.create({
+      data: {
+        orderId: order.id,
+        originalName: file.originalName,
+        storagePath: file.storagePath,
+        fileType,
+        size: file.size,
+        pageCount: analysis.pageCount,
+        colorPageCount: analysis.colorPageCount,
+        orientation: analysis.orientation || 'portrait',
+        settings: defaultSettings,
+        shopId,
+      },
+    });
+    created++;
+  }
+
+  if (created === 0) {
+    throw new AppError('Could not read the received files. Please send them again.', 400, 'WA_FILES_MISSING');
+  }
+
+  await prisma.whatsAppSession.update({
+    where: { id: session.id },
+    data: { status: 'CLAIMED', claimedAt: new Date() },
+  });
+
+  const orderWithFiles = await prisma.order.findUnique({
+    where: { id: order.id },
+    include: { files: true, customer: true },
+  });
+
+  res.json({
+    success: true,
+    data: {
+      order: orderWithFiles,
+      customerPhone: session.customerPhone,
+      customerName: session.customerName,
+    },
+  });
+}));
+
+// ============================================
 // ADMIN ROUTES
 // ============================================
 
@@ -1317,6 +1425,19 @@ app.get('/api/settings/public/upi-qr', asyncHandler(async (req, res) => {
   res.json({ success: true, data: { url } });
 }));
 
+app.get('/api/settings/public/pricing', asyncHandler(async (req, res) => {
+  const shop = await findShopByRef(req.query.shop);
+  const pricing = shop ? await prisma.pricingRule.findFirst({ where: { shopId: shop.id } }) : null;
+  res.json({
+    success: true,
+    data: {
+      bwPerPage: pricing?.bwPerPage ?? 1,
+      colorPerPage: pricing?.colorPerPage ?? 5,
+      colorDuplexPerPage: pricing?.colorDuplexPerPage ?? 10,
+    },
+  });
+}));
+
 // Public info for a shop's customer portal (/s/:slug)
 app.get('/api/guest/shop/:ref', asyncHandler(async (req, res) => {
   const shop = await findShopByRef(req.params.ref);
@@ -1443,6 +1564,73 @@ app.post('/api/agent/key-login', asyncHandler(async (req, res) => {
         shopName: shop.name,
       },
       subscription,
+    },
+  });
+}));
+
+// Receive files a customer sent to the shop's WhatsApp number. The desktop app
+// is paired to that number, downloads the media and uploads it here; we reply
+// with the portal link that pre-loads these files for print options + payment.
+app.post('/api/agent/whatsapp/inbox', authenticate, requireActiveSubscription, upload.array('files', 20), asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const customerPhone = String(req.body.customerPhone || '').replace(/\D/g, '');
+  if (!customerPhone) throw new AppError('customerPhone is required', 400, 'WA_NO_PHONE');
+  if (!req.files || req.files.length === 0) throw new AppError('No files received', 400, 'WA_NO_FILES');
+
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) throw new AppError('Shop not found', 404, 'NOT_FOUND');
+
+  let session = await prisma.whatsAppSession.findFirst({
+    where: { shopId, customerPhone, status: 'NEW' },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!session) {
+    session = await prisma.whatsAppSession.create({
+      data: {
+        token: crypto.randomBytes(16).toString('hex'),
+        shopId,
+        customerPhone,
+        customerName: req.body.customerName || null,
+        files: [],
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    });
+  }
+
+  const currentFiles = session.files || [];
+  const updatedFiles = [...currentFiles];
+  for (const file of req.files) {
+    const originalName = file.originalname;
+    if (!isSupportedFileType(originalName)) continue;
+    updatedFiles.push({
+      messageId: `wa_${Date.now()}_${file.filename}`,
+      originalName,
+      storagePath: file.path,
+      fileType: getFileType(originalName),
+      size: file.size,
+    });
+  }
+
+  if (updatedFiles.length === currentFiles.length) {
+    throw new AppError('No supported files in that upload', 400, 'WA_UNSUPPORTED');
+  }
+
+  await prisma.whatsAppSession.update({
+    where: { id: session.id },
+    data: { files: updatedFiles, customerName: req.body.customerName || session.customerName },
+  });
+
+  const link = `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/s/${shop.slug}?wa=${session.token}`;
+
+  res.json({
+    success: true,
+    data: {
+      sessionId: session.id,
+      token: session.token,
+      link,
+      fileCount: updatedFiles.length,
+      customerPhone,
     },
   });
 }));
@@ -1740,7 +1928,10 @@ app.put('/api/superadmin/shops/:id', authenticate, requireSuperAdmin, asyncHandl
 
   const updatedShop = await prisma.shop.update({
     where: { id },
-    data: { name: name || shop.name, ...(slug ? { slug } : {}) },
+    data: {
+      name: name || shop.name,
+      ...(slug ? { slug } : {}),
+    },
   });
 
   const subData = {};

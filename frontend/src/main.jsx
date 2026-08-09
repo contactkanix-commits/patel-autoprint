@@ -1,10 +1,8 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
 import { Toaster } from 'react-hot-toast';
-import theme from './utils/theme';
+import { ThemeModeProvider } from './utils/ThemeContext';
 import App from './App';
 import './index.css';
 
@@ -35,11 +33,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
+        <ThemeModeProvider>
           <App />
           <Toaster position="top-right" />
-        </ThemeProvider>
+        </ThemeModeProvider>
       </BrowserRouter>
     </ErrorBoundary>
   </React.StrictMode>

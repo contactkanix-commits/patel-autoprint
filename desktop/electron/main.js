@@ -3,6 +3,7 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const { PrintAgent } = require('./agent');
+const { WhatsAppClient } = require('./whatsapp');
 const { listSystemPrinters } = require('./printers');
 
 const isDev = !app.isPackaged;
@@ -12,6 +13,7 @@ let tray = null;
 let isQuitting = false;
 
 const agent = new PrintAgent();
+const whatsapp = new WhatsAppClient();
 
 let lastUpdateStatus = null;
 
@@ -158,18 +160,36 @@ function broadcastAgentStatus() {
   }
 }
 
+function broadcastWhatsAppStatus() {
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('whatsapp:status', whatsapp.getStatus());
+  }
+}
+
+function startWhatsAppWithCreds() {
+  const creds = loadCredentials();
+  if (creds && creds.apiUrl && creds.token) {
+    whatsapp.start({ apiUrl: creds.apiUrl, token: creds.token }).catch((err) => {
+      console.error('[whatsapp] start failed:', err?.message || err);
+    });
+  }
+}
+
 function registerIpc() {
   ipcMain.handle('agent:set-credentials', (_e, { apiUrl, token }) => {
     if (!apiUrl || !token) return { success: false, message: 'Missing credentials' };
     agent.configure(apiUrl, token);
     saveCredentials(apiUrl, token);
     agent.start();
+    startWhatsAppWithCreds();
     return { success: true };
   });
 
   ipcMain.handle('agent:clear-credentials', () => {
     agent.stop();
     agent.configure(null, null);
+    whatsapp.stop();
     clearCredentials();
     return { success: true };
   });
@@ -192,6 +212,18 @@ function registerIpc() {
   });
 
   ipcMain.handle('printers:list-system', () => listSystemPrinters());
+
+  ipcMain.handle('whatsapp:get-status', () => whatsapp.getStatus());
+
+  ipcMain.handle('whatsapp:start', () => {
+    const creds = loadCredentials();
+    if (!creds || !creds.apiUrl || !creds.token) {
+      return { success: false, message: 'Not logged in to Patel AutoPrint yet.' };
+    }
+    return whatsapp.start({ apiUrl: creds.apiUrl, token: creds.token });
+  });
+
+  ipcMain.handle('whatsapp:logout', () => whatsapp.logout());
 
   ipcMain.handle('app:check-for-updates', () => {
     if (!isDev) autoUpdater.checkForUpdates();
@@ -224,8 +256,10 @@ app.whenReady().then(() => {
   setupAutoUpdater();
 
   agent.on('status', broadcastAgentStatus);
+  whatsapp.on('status', broadcastWhatsAppStatus);
   agent.on('auth-expired', () => {
     agent.stop();
+    whatsapp.stop();
     clearCredentials();
     agent.configure(null, null);
     const win = mainWindow;
@@ -242,6 +276,7 @@ app.whenReady().then(() => {
   if (creds && creds.apiUrl && creds.token) {
     agent.configure(creds.apiUrl, creds.token);
     agent.start();
+    startWhatsAppWithCreds();
   }
 
   app.on('activate', () => {

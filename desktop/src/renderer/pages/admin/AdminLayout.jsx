@@ -19,6 +19,7 @@ import {
   Assessment as AssessmentIcon,
   Logout as LogoutIcon,
   SettingsRemote as AgentIcon,
+  WhatsApp as WhatsAppIcon,
   WarningAmber as WarningIcon,
   Block as BlockIcon,
 } from '@mui/icons-material';
@@ -32,6 +33,7 @@ const tabs = [
   { label: 'Printers', icon: <PrintIcon />, path: '/admin/printers' },
   { label: 'Pricing', icon: <AssessmentIcon />, path: '/admin/settings' },
   { label: 'Agent', icon: <AgentIcon />, path: '/admin/agent' },
+  { label: 'WhatsApp', icon: <WhatsAppIcon />, path: '/admin/whatsapp' },
 ];
 
 function SubscriptionBanner({ subscription }) {
