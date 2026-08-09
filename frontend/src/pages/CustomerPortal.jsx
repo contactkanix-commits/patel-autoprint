@@ -49,6 +49,7 @@ import {
   LocalMall,
   CreditCard,
   QrCode2,
+  Image as ImageIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -189,33 +190,6 @@ function PrivacyNote() {
         stays for the shop bill.
       </Typography>
     </Alert>
-  );
-}
-
-function RateCard({ rates }) {
-  if (!rates) return null;
-  const rows = [
-    { label: 'B&W (A4)', value: `₹${rates.bwPerPage} / page` },
-    { label: 'Colour (A4)', value: `₹${rates.colorPerPage} / page` },
-    { label: 'Colour · double-sided', value: `₹${rates.colorDuplexPerPage} / page` },
-  ];
-  return (
-    <Card variant="outlined" sx={{ mb: 2 }}>
-      <CardContent sx={{ py: 1.5, px: 2 }}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <InfoIcon fontSize="small" sx={{ color: 'primary.main' }} />
-          Price list (₹ per page)
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {rows.map((r) => (
-            <Box key={r.label} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="caption" color="text.secondary">{r.label}</Typography>
-              <Typography variant="body2" fontWeight={700}>{r.value}</Typography>
-            </Box>
-          ))}
-        </Box>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -410,6 +384,219 @@ const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
   );
 };
 
+function fileUrl(file) {
+  if (!file?.storagePath) return null;
+  return `/uploads/${file.storagePath.split(/[\\/]/).pop()}`;
+}
+
+function gridColumnsFor(pps) {
+  if (pps >= 16) return 4;
+  if (pps >= 6) return 3;
+  if (pps >= 4) return 2;
+  if (pps >= 2) return 2;
+  return 1;
+}
+
+function OptionGroup({ label, options, value, onChange, cols = 2 }) {
+  return (
+    <Box sx={{ mb: 1.75 }}>
+      <Typography
+        variant="caption"
+        fontWeight={700}
+        color="text.secondary"
+        sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.6 }}
+      >
+        {label}
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: 0.75 }}>
+        {options.map((opt) => {
+          const selected = opt.value === value;
+          return (
+            <ButtonBase
+              key={opt.value}
+              onClick={() => onChange(opt.value)}
+              sx={{
+                py: 1,
+                px: 0.75,
+                borderRadius: 1.5,
+                border: '1.5px solid',
+                borderColor: selected ? 'primary.main' : 'divider',
+                bgcolor: selected ? 'primary.main' : 'background.paper',
+                color: selected ? 'primary.contrastText' : 'text.primary',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                lineHeight: 1.2,
+                transition: 'all 0.15s',
+                boxShadow: selected ? 1 : 0,
+                '&:hover': { borderColor: 'primary.main', bgcolor: selected ? 'primary.dark' : 'action.hover' },
+              }}
+            >
+              {opt.label}
+            </ButtonBase>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+}
+
+function CopiesStepper({ value, onChange }) {
+  return (
+    <Box sx={{ mb: 1.75 }}>
+      <Typography
+        variant="caption"
+        fontWeight={700}
+        color="text.secondary"
+        sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.6 }}
+      >
+        Copies
+      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <IconButton
+          size="small"
+          onClick={() => onChange(Math.max(1, (value || 1) - 1))}
+          sx={{ border: '1.5px solid', borderColor: 'divider', borderRadius: 1.5 }}
+        >
+          <Remove fontSize="small" />
+        </IconButton>
+        <Typography variant="h6" fontWeight={800} sx={{ minWidth: 40, textAlign: 'center' }}>
+          {value || 1}
+        </Typography>
+        <IconButton
+          size="small"
+          onClick={() => onChange((value || 1) + 1)}
+          sx={{ border: '1.5px solid', borderColor: 'divider', borderRadius: 1.5 }}
+        >
+          <Add fontSize="small" />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+}
+
+function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
+  const isImage = isImageFile(file);
+  const pps = settings.pagesPerSheet || 1;
+  const paper = settings.paperSize || 'A4';
+  const copies = settings.copies || 1;
+  const colorMode = settings.colorMode || 'bw';
+  const pageCount = file?.pageCount || 1;
+  const portrait = settings.orientation !== 'landscape';
+
+  const cells = allImages
+    ? Math.min(pps, Math.max(1, totalImages || 1))
+    : isImage
+      ? 1
+      : pps;
+  const sheets = allImages
+    ? Math.max(1, Math.ceil((totalImages || 1) / pps))
+    : Math.max(1, Math.ceil(pageCount / pps));
+  const cols = gridColumnsFor(pps);
+  const totalPages = sheets * copies;
+
+  const summary = [
+    paper,
+    colorMode === 'color' ? 'Color' : 'B/W',
+    settings.printStyle === 'duplex' ? 'Double-sided' : 'Single-sided',
+    pps > 1 ? `${pps} per page` : null,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <Box sx={{ textAlign: 'center' }}>
+      <Typography
+        variant="caption"
+        fontWeight={700}
+        color="text.secondary"
+        sx={{ display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: 0.6 }}
+      >
+        Live Print Preview
+      </Typography>
+      <Box
+        sx={{
+          position: 'relative',
+          aspectRatio: portrait ? '210/297' : '297/210',
+          width: '100%',
+          maxWidth: portrait ? 230 : 300,
+          mx: 'auto',
+          bgcolor: '#fff',
+          borderRadius: 1,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          overflow: 'hidden',
+          display: 'grid',
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gap: pps > 1 ? 2 : 0,
+          p: pps > 1 ? 1.5 : 2,
+        }}
+      >
+        {Array.from({ length: cells }).map((_, i) => (
+          <Box
+            key={i}
+            sx={{
+              position: 'relative',
+              bgcolor: '#fff',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: '1px dashed #e0e0e0',
+            }}
+          >
+            {isImage ? (
+              imageUrls?.[i] ? (
+                <img
+                  src={imageUrls[i]}
+                  alt={`Image ${i + 1}`}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
+                  }}
+                />
+              ) : (
+                <ImageIcon sx={{ fontSize: 40, color: '#bdbdbd' }} />
+              )
+            ) : (
+              <Box sx={{ width: '80%', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Box sx={{ height: 6, width: '60%', bgcolor: '#e0e0e0', borderRadius: 1 }} />
+                <Box sx={{ height: 6, width: '90%', bgcolor: '#ececec', borderRadius: 1 }} />
+                <Box sx={{ height: 6, width: '75%', bgcolor: '#ececec', borderRadius: 1 }} />
+                <Box sx={{ height: 6, width: '85%', bgcolor: '#ececec', borderRadius: 1 }} />
+                <Box sx={{ height: 6, width: '55%', bgcolor: '#ececec', borderRadius: 1 }} />
+              </Box>
+            )}
+          </Box>
+        ))}
+        {allImages && totalImages > cells && (
+          <Box
+            sx={{
+              position: 'absolute',
+              right: 6,
+              bottom: 6,
+              bgcolor: 'rgba(0,0,0,0.55)',
+              color: '#fff',
+              borderRadius: 1,
+              px: 0.75,
+              py: 0.25,
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            +{totalImages - cells} more images
+          </Box>
+        )}
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        {summary}
+      </Typography>
+      <Typography variant="body2" fontWeight={800} color="primary" sx={{ display: 'block', mt: 0.25 }}>
+        {totalPages} page{totalPages === 1 ? '' : 's'}
+        {sheets > 1 ? ` · ${sheets} sheet${sheets === 1 ? '' : 's'} × ${copies} ${copies === 1 ? 'copy' : 'copies'}` : ''}
+      </Typography>
+    </Box>
+  );
+}
+
 function Step2Configure({ files, fileSettings, setFileSettings }) {
   const [activeTab, setActiveTab] = useState(0);
 
@@ -423,6 +610,8 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
   };
 
   const allImages = files.length > 0 && files.every((f) => isImageFile(f));
+  const totalImages = files.filter((f) => isImageFile(f)).length;
+  const imageUrls = files.map((f) => fileUrl(f));
 
   // Apply a setting to every image file at once (contact-sheet mode)
   const updateAllImageSettings = (key, value) => {
@@ -476,11 +665,14 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
     updateSetting(fileIndex, 'sections', (current.sections || []).filter((_, i) => i !== sectionIndex));
   };
 
+  const s = getSettings(activeTab);
+  const currentFile = files[activeTab];
+
   return (
     <Box>
-      <Typography variant="h6" fontWeight={700} gutterBottom>Set options for each file</Typography>
+      <Typography variant="h6" fontWeight={700} gutterBottom>Set your print options</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Each file has its own copies, colour, orientation, sides, paper &amp; pages.
+        Tap the buttons to choose how your file prints — the preview updates instantly.
       </Typography>
 
       {files.length > 1 && (
@@ -499,135 +691,120 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
       )}
 
       {allImages && (
-        <Alert severity="info" sx={{ mb: 1.5 }}>
-          <Typography variant="body2" fontWeight={600} gutterBottom>
-            Photo contact sheet
+        <Box sx={{ mb: 1.5 }}>
+          <Typography
+            variant="caption"
+            fontWeight={700}
+            color="text.secondary"
+            sx={{ display: 'block', mb: 0.5, textTransform: 'uppercase', letterSpacing: 0.6 }}
+          >
+            Photos per page
           </Typography>
-          <Typography variant="caption" display="block" sx={{ mb: 1 }}>
-            Your pictures will be arranged onto A4 sheets. Choose how many pictures go on each page:
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            {pagesPerSheetOptions.filter((n) => n > 1).map((n) => (
-              <Chip
-                key={n}
-                label={`${n} pictures / page`}
-                color={(getSettings(activeTab).pagesPerSheet || 1) === n ? 'primary' : 'default'}
-                onClick={() => updateAllImageSettings('pagesPerSheet', n)}
-                variant={(getSettings(activeTab).pagesPerSheet || 1) === n ? 'filled' : 'outlined'}
-                size="small"
-              />
-            ))}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 0.75 }}>
+            {pagesPerSheetOptions.filter((n) => n > 1).map((n) => {
+              const selected = (s.pagesPerSheet || 1) === n;
+              return (
+                <ButtonBase
+                  key={n}
+                  onClick={() => updateAllImageSettings('pagesPerSheet', n)}
+                  sx={{
+                    py: 1,
+                    borderRadius: 1.5,
+                    border: '1.5px solid',
+                    borderColor: selected ? 'primary.main' : 'divider',
+                    bgcolor: selected ? 'primary.main' : 'background.paper',
+                    color: selected ? 'primary.contrastText' : 'text.primary',
+                    fontWeight: 800,
+                    fontSize: '0.9rem',
+                    transition: 'all 0.15s',
+                    '&:hover': { borderColor: 'primary.main' },
+                  }}
+                >
+                  {n}
+                </ButtonBase>
+              );
+            })}
           </Box>
-        </Alert>
+        </Box>
       )}
 
-      {files.length > 0 && (
+      {currentFile && (
         <Card variant="outlined">
           <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: 1.5 } }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-              {files[activeTab]?.originalName || files[activeTab]?.name} — {files[activeTab]?.pageCount || '?'} pages
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+              {currentFile.originalName || currentFile.name} — {currentFile.pageCount || '?'} page{currentFile.pageCount === 1 ? '' : 's'}
             </Typography>
 
-            <Grid container spacing={1.5}>
-              <Grid item xs={6} sm={4} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Paper</InputLabel>
-                  <Select
-                    value={getSettings(activeTab).paperSize || 'A4'}
-                    label="Paper"
-                    onChange={(e) => updateSetting(activeTab, 'paperSize', e.target.value)}
-                  >
-                    {paperSizes.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={4} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Color</InputLabel>
-                  <Select
-                    value={getSettings(activeTab).colorMode || 'bw'}
-                    label="Color"
-                    onChange={(e) => allImages
-                      ? updateAllImageSettings('colorMode', e.target.value)
-                      : updateSetting(activeTab, 'colorMode', e.target.value)}
-                  >
-                    {colorModes.map((m) => (
-                      <MenuItem key={m} value={m}>{m === 'color' ? 'Color' : 'B/W'}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={4} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Style</InputLabel>
-                  <Select
-                    value={getSettings(activeTab).printStyle || 'single'}
-                    label="Style"
-                    onChange={(e) => updateSetting(activeTab, 'printStyle', e.target.value)}
-                  >
-                    <MenuItem value="single">Single-sided</MenuItem>
-                    <MenuItem value="duplex">Double-sided</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={4} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>Orientation</InputLabel>
-                  <Select
-                    value={getSettings(activeTab).orientation || 'auto'}
-                    label="Orientation"
-                    onChange={(e) => updateSetting(activeTab, 'orientation', e.target.value)}
-                  >
-                    {orientations.map((o) => (
-                      <MenuItem key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={6} sm={4} md={3}>
-                <TextField
-                  fullWidth size="small" type="number" label="Copies"
-                  value={getSettings(activeTab).copies ?? 1}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    updateSetting(activeTab, 'copies', v === '' ? '' : parseInt(v));
-                  }}
-                  onBlur={() => {
-                    const val = getSettings(activeTab).copies;
-                    if (val === '' || val == null || val < 1) {
-                      updateSetting(activeTab, 'copies', 1);
-                    }
-                  }}
-                  inputProps={{ min: 1 }}
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={5}>
+                <PrintPreview
+                  file={currentFile}
+                  settings={s}
+                  allImages={allImages}
+                  totalImages={totalImages}
+                  imageUrls={allImages ? imageUrls : [fileUrl(currentFile)]}
                 />
               </Grid>
-              <Grid item xs={6} sm={4} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel>N-up</InputLabel>
-                  <Select
-                    value={getSettings(activeTab).pagesPerSheet || 1}
-                    label="N-up"
-                    onChange={(e) => allImages
-                      ? updateAllImageSettings('pagesPerSheet', parseInt(e.target.value))
-                      : updateSetting(activeTab, 'pagesPerSheet', parseInt(e.target.value))}
-                  >
-                    {pagesPerSheetOptions.map((n) => (
-                      <MenuItem key={n} value={n}>{n === 1 ? '1 page' : `${n} in 1`}</MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              {!(getSettings(activeTab).sections || []).length > 0 && (
-                <Grid item xs={12} sm={6}>
+              <Grid item xs={12} sm={7}>
+                <OptionGroup
+                  label="Paper Size"
+                  cols={2}
+                  value={s.paperSize || 'A4'}
+                  onChange={(v) => updateSetting(activeTab, 'paperSize', v)}
+                  options={paperSizes.map((ps) => ({ value: ps, label: ps }))}
+                />
+                <OptionGroup
+                  label="Color"
+                  cols={2}
+                  value={s.colorMode || 'bw'}
+                  onChange={(v) => (allImages ? updateAllImageSettings('colorMode', v) : updateSetting(activeTab, 'colorMode', v))}
+                  options={[
+                    { value: 'bw', label: 'B/W' },
+                    { value: 'color', label: 'Color' },
+                  ]}
+                />
+                <OptionGroup
+                  label="Sides"
+                  cols={2}
+                  value={s.printStyle || 'single'}
+                  onChange={(v) => updateSetting(activeTab, 'printStyle', v)}
+                  options={[
+                    { value: 'single', label: 'Single-sided' },
+                    { value: 'duplex', label: 'Double-sided' },
+                  ]}
+                />
+                <OptionGroup
+                  label="Orientation"
+                  cols={3}
+                  value={s.orientation || 'auto'}
+                  onChange={(v) => updateSetting(activeTab, 'orientation', v)}
+                  options={orientations.map((o) => ({
+                    value: o,
+                    label: o === 'auto' ? 'Auto' : o.charAt(0).toUpperCase() + o.slice(1),
+                  }))}
+                />
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <CopiesStepper value={s.copies ?? 1} onChange={(v) => updateSetting(activeTab, 'copies', v)} />
+                  <OptionGroup
+                    label="Pages / Sheet"
+                    cols={3}
+                    value={s.pagesPerSheet || 1}
+                    onChange={(v) => (allImages
+                      ? updateAllImageSettings('pagesPerSheet', parseInt(v))
+                      : updateSetting(activeTab, 'pagesPerSheet', parseInt(v)))}
+                    options={pagesPerSheetOptions.map((n) => ({ value: n, label: n === 1 ? '1' : String(n) }))}
+                  />
+                </Box>
+                {!(s.sections || []).length > 0 && (
                   <TextField
-                    fullWidth size="small" label="Page Range"
-                    value={getSettings(activeTab).pageRange || ''}
+                    fullWidth size="small" label="Page range"
+                    value={s.pageRange || ''}
                     onChange={(e) => updateSetting(activeTab, 'pageRange', e.target.value)}
                     placeholder="e.g. 1-5, 8, 10-12"
                     helperText="Leave empty = all pages"
                   />
-                </Grid>
-              )}
+                )}
+              </Grid>
             </Grid>
 
             <Divider sx={{ my: 1.5 }} />
@@ -639,8 +816,8 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
               </Button>
             </Box>
 
-            {(getSettings(activeTab).sections || []).length > 0 ? (
-              (getSettings(activeTab).sections || []).map((section, si) => (
+            {(s.sections || []).length > 0 ? (
+              (s.sections || []).map((section, si) => (
                 <Paper key={section.id || si} variant="outlined" sx={{ p: 1, mb: 0.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
                     <Typography variant="caption" fontWeight={600}>Section {si + 1} (p{section.startPage}-{section.endPage})</Typography>
@@ -983,7 +1160,6 @@ export default function CustomerPortal() {
   const [upiQrUrl, setUpiQrUrl] = useState('');
   const [shop, setShop] = useState(null);
   const [shopError, setShopError] = useState('');
-  const [rates, setRates] = useState(null);
   const [waSource, setWaSource] = useState(false);
   const [waError, setWaError] = useState('');
   const waToken = searchParams.get('wa');
@@ -1029,19 +1205,6 @@ export default function CustomerPortal() {
       });
     return () => { cancelled = true; };
   }, [shopSlug]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const params = new URLSearchParams();
-    if (shop?.slug) params.append('shop', shop.slug);
-    else if (shopSlug) params.append('shop', shopSlug);
-    api.get(`/settings/public/pricing?${params.toString()}`)
-      .then((result) => {
-        if (!cancelled && result.success) setRates(result.data);
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [shop?.slug, shopSlug]);
 
   const handleUpload = async () => {
     if (files.length === 0) { toast.error('Please select files'); return; }
@@ -1196,7 +1359,6 @@ export default function CustomerPortal() {
           <StepIndicator activeStep={activeStep} />
 
           {activeStep < 3 && <PrivacyNote />}
-          {activeStep === 0 && <RateCard rates={rates} />}
 
           <Paper sx={{ p: { xs: 2, sm: 2.5 }, mb: 2 }}>
             {activeStep === 0 && (
