@@ -16,7 +16,7 @@ async function main() {
     // 1. Move users (skip if email already exists in target shop)
     const usersToMove = await prisma.user.findMany({ where: { shopId: { in: removeIds } } });
     for (const u of usersToMove) {
-      const dup = await prisma.user.findUnique({ where: { shopId_email: { shopId: keepShopId, email: u.email } } });
+      const dup = await prisma.user.findFirst({ where: { shopId: keepShopId, email: u.email } });
       if (!dup) {
         await prisma.user.update({ where: { id: u.id }, data: { shopId: keepShopId } });
       } else {
