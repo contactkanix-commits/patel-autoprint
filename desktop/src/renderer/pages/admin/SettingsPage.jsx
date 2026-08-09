@@ -19,9 +19,6 @@ import {
 import {
   Save as SaveIcon,
   Upload as UploadIcon,
-  Key as KeyIcon,
-  ContentCopy as CopyIcon,
-  Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -41,14 +38,11 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
-  const [agentKey, setAgentKey] = useState('');
-  const [loadingAgentKey, setLoadingAgentKey] = useState(true);
   const qrInputRef = useRef(null);
 
   useEffect(() => {
     fetchSettings();
     fetchPrinters();
-    fetchAgentKey();
   }, []);
 
   const fetchSettings = async () => {
@@ -75,37 +69,6 @@ export default function SettingsPage() {
       }
     } catch {
       // ignore
-    }
-  };
-
-  const fetchAgentKey = async () => {
-    try {
-      const result = await api.get('/auth/agent-key');
-      if (result.success) {
-        setAgentKey(result.data?.agentKey || '');
-      }
-    } catch {
-      // ignore
-    } finally {
-      setLoadingAgentKey(false);
-    }
-  };
-
-  const handleCopyAgentKey = () => {
-    navigator.clipboard?.writeText(agentKey);
-    toast.success('Agent key copied');
-  };
-
-  const handleRegenerateAgentKey = async () => {
-    if (!window.confirm('Generate a new agent key? The old key will stop working immediately.')) return;
-    try {
-      const result = await api.post('/auth/agent-key/regenerate');
-      if (result.success) {
-        setAgentKey(result.data?.agentKey || '');
-        toast.success('New agent key generated');
-      }
-    } catch {
-      toast.error('Failed to regenerate agent key');
     }
   };
 
@@ -158,57 +121,6 @@ export default function SettingsPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
         Configure pricing, payment, and shop preferences
       </Typography>
-
-      <Card sx={{ maxWidth: 600, mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>Agent Key</Typography>
-          <Divider sx={{ mb: 2 }} />
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            This key activates Patel AutoPrint on this PC. Enter it once during
-            setup; the shop owner never needs to log in again.
-          </Typography>
-          {loadingAgentKey ? (
-            <CircularProgress size={20} />
-          ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-              <Box
-                sx={{
-                  fontFamily: 'monospace',
-                  fontSize: 18,
-                  fontWeight: 600,
-                  letterSpacing: 1,
-                  bgcolor: 'action.hover',
-                  borderRadius: 2,
-                  px: 2,
-                  py: 1,
-                }}
-              >
-                <KeyIcon sx={{ fontSize: 18, verticalAlign: 'middle', mr: 1, color: 'primary.main' }} />
-                {agentKey || '—'}
-              </Box>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<CopyIcon />}
-                onClick={handleCopyAgentKey}
-                disabled={!agentKey}
-                sx={{ textTransform: 'none' }}
-              >
-                Copy
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<RefreshIcon />}
-                onClick={handleRegenerateAgentKey}
-                sx={{ textTransform: 'none' }}
-              >
-                Regenerate
-              </Button>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
 
       <Card sx={{ maxWidth: 600, mb: 3 }}>
         <CardContent>

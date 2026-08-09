@@ -385,22 +385,6 @@ app.get('/api/auth/profile', authenticate, asyncHandler(async (req, res) => {
   });
 }));
 
-// View this shop's agent key (so the owner/vendor can copy it to another PC)
-app.get('/api/auth/agent-key', authenticate, asyncHandler(async (req, res) => {
-  const shop = await prisma.shop.findUnique({ where: { id: req.user.shopId } });
-  res.json({ success: true, data: { agentKey: shop ? shop.agentKey : null } });
-}));
-
-// Generate a new agent key for this shop (old key stops working)
-app.post('/api/auth/agent-key/regenerate', authenticate, asyncHandler(async (req, res) => {
-  const agentKey = generateAgentKey();
-  const shop = await prisma.shop.update({
-    where: { id: req.user.shopId },
-    data: { agentKey },
-  });
-  res.json({ success: true, data: { agentKey: shop.agentKey } });
-}));
-
 // ============================================
 // FILE UPLOAD & ORDER ROUTES
 // ============================================
