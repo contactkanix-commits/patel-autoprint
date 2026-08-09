@@ -1,35 +1,32 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
-  Drawer,
   AppBar,
   Toolbar,
   Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Divider,
+  Tabs,
+  Tab,
+  Button,
   Avatar,
+  Chip,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
   ShoppingCart as OrdersIcon,
   Print as PrintIcon,
-  Settings as SettingsIcon,
-  Logout as LogoutIcon,
   Assessment as AssessmentIcon,
+  Logout as LogoutIcon,
+  SettingsRemote as AgentIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../AuthContext';
+import { useEffect, useState } from 'react';
 
-const DRAWER_WIDTH = 240;
-
-const menuItems = [
-  { text: 'Dashboard', icon: <DashboardIcon />, path: '/admin' },
-  { text: 'Orders', icon: <OrdersIcon />, path: '/admin/orders' },
-  { text: 'Printers', icon: <PrintIcon />, path: '/admin/printers' },
-  { text: 'Pricing', icon: <AssessmentIcon />, path: '/admin/settings' },
+const tabs = [
+  { label: 'Dashboard', icon: <DashboardIcon />, path: '/admin' },
+  { label: 'Orders', icon: <OrdersIcon />, path: '/admin/orders' },
+  { label: 'Printers', icon: <PrintIcon />, path: '/admin/printers' },
+  { label: 'Pricing', icon: <AssessmentIcon />, path: '/admin/settings' },
+  { label: 'Agent', icon: <AgentIcon />, path: '/admin/agent' },
 ];
 
 export default function AdminLayout() {
@@ -37,75 +34,70 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [agentRunning, setAgentRunning] = useState(null);
+
+  useEffect(() => {
+    if (window.patelApp?.agent) {
+      window.patelApp.agent.getStatus().then((s) => setAgentRunning(s?.status === 'running'));
+      const unsub = window.patelApp.agent.onStatus((s) => setAgentRunning(s?.status === 'running'));
+      return unsub;
+    }
+  }, []);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const drawer = (
-    <Box>
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Avatar sx={{ bgcolor: 'primary.main' }}>
-          {user?.name?.[0]?.toUpperCase() || 'A'}
-        </Avatar>
-        <Box sx={{ overflow: 'hidden' }}>
-          <Typography variant="subtitle2" noWrap>{user?.name || 'Admin'}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {user?.email || 'admin@patel.com'}
-          </Typography>
-        </Box>
-      </Box>
-      <Divider />
-      <List>
-        {menuItems.map((item) => (
-          <ListItem key={item.text} disablePadding>
-            <ListItemButton
-              selected={location.pathname === item.path}
-              onClick={() => navigate(item.path)}
-            >
-              <ListItemIcon>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.text} />
-            </ListItemButton>
-          </ListItem>
-        ))}
-      </List>
-      <Divider />
-      <List>
-        <ListItem disablePadding>
-          <ListItemButton onClick={handleLogout}>
-            <ListItemIcon><LogoutIcon /></ListItemIcon>
-            <ListItemText primary="Logout" />
-          </ListItemButton>
-        </ListItem>
-      </List>
-    </Box>
+  const activeIndex = tabs.findIndex((t) =>
+    t.path === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(t.path)
   );
 
+  const handleTabChange = (_, index) => {
+    navigate(tabs[index].path);
+  };
+
   return (
-    <Box sx={{ display: 'flex', width: '100%' }}>
-      <AppBar
-        position="fixed"
-        sx={{
-          width: `calc(100% - ${DRAWER_WIDTH}px)`,
-          ml: `${DRAWER_WIDTH}px`,
-        }}
-      >
-        <Toolbar>
-          <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
-            Patel AutoPrint - Admin
+    <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+      <AppBar position="fixed">
+        <Toolbar sx={{ gap: 2 }}>
+          <Avatar sx={{ bgcolor: 'primary.dark' }}>
+            {user?.name?.[0]?.toUpperCase() || 'A'}
+          </Avatar>
+          <Typography variant="h6" noWrap sx={{ mr: 3 }}>
+            Patel AutoPrint
           </Typography>
+          {agentRunning !== null && (
+            <Chip
+              icon={<span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: agentRunning ? '#4caf50' : '#9e9e9e', marginLeft: 8 }} />}
+              label={agentRunning ? 'Agent ON' : 'Agent OFF'}
+              size="small"
+              sx={{
+                color: 'inherit',
+                bgcolor: 'rgba(255,255,255,0.16)',
+                '& .MuiChip-label': { color: 'white' },
+                mr: 1,
+              }}
+            />
+          )}
+          <Tabs
+            value={activeIndex < 0 ? 0 : activeIndex}
+            onChange={handleTabChange}
+            textColor="inherit"
+            sx={{
+              flexGrow: 1,
+              '& .MuiTabs-indicator': { backgroundColor: 'white' },
+            }}
+          >
+            {tabs.map((t) => (
+              <Tab key={t.label} icon={t.icon} iconPosition="start" label={t.label} sx={{ minWidth: 120 }} />
+            ))}
+          </Tabs>
+          <Button color="inherit" startIcon={<LogoutIcon />} onClick={handleLogout}>
+            Logout
+          </Button>
         </Toolbar>
       </AppBar>
-
-      <Drawer
-        variant="permanent"
-        sx={{
-          '& .MuiDrawer-paper': { width: DRAWER_WIDTH, boxSizing: 'border-box' },
-        }}
-        open
-      >
-        {drawer}
-      </Drawer>
 
       <Box
         component="main"
@@ -113,7 +105,6 @@ export default function AdminLayout() {
           flexGrow: 1,
           minWidth: 0,
           p: { xs: 2, sm: 3 },
-          width: `calc(100% - ${DRAWER_WIDTH}px)`,
           mt: '64px',
           minHeight: 'calc(100vh - 64px)',
         }}

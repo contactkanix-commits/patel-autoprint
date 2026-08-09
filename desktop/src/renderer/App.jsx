@@ -9,6 +9,7 @@ import OrderQueuePage from './pages/admin/OrderQueuePage';
 import OrderDetailPage from './pages/admin/OrderDetailPage';
 import PrintersPage from './pages/admin/PrintersPage';
 import SettingsPage from './pages/admin/SettingsPage';
+import AgentPage from './pages/admin/AgentPage';
 
 function RequireAuth({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="orders/:id" element={<OrderDetailPage />} />
         <Route path="printers" element={<PrintersPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="agent" element={<AgentPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<Navigate to="/admin" replace />} />

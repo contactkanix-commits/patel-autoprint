@@ -1,7 +1,24 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from './api';
+import { getApiUrl } from './settings';
 
 const AuthContext = createContext(null);
+
+function agentAvailable() {
+  return typeof window !== 'undefined' && !!window.patelApp?.agent;
+}
+
+function agentSetCredentials(token) {
+  if (agentAvailable()) {
+    window.patelApp.agent.setCredentials(getApiUrl(), token);
+  }
+}
+
+function agentClearCredentials() {
+  if (agentAvailable()) {
+    window.patelApp.agent.clearCredentials();
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -22,6 +39,7 @@ export function AuthProvider({ children }) {
             setUser(result.data);
             localStorage.setItem('user', JSON.stringify(result.data));
           }
+          agentSetCredentials(savedToken);
         } catch {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
@@ -32,6 +50,16 @@ export function AuthProvider({ children }) {
       setLoading(false);
     };
     initAuth();
+
+    if (agentAvailable()) {
+      return window.patelApp.agent.onAuthExpired(() => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setToken(null);
+        setUser(null);
+        window.location.hash = '#/login';
+      });
+    }
   }, []);
 
   const login = async (email, password) => {
@@ -42,6 +70,7 @@ export function AuthProvider({ children }) {
       setUser(userData);
       localStorage.setItem('token', newToken);
       localStorage.setItem('user', JSON.stringify(userData));
+      agentSetCredentials(newToken);
       return userData;
     }
     throw new Error(result.message || 'Login failed');
@@ -52,6 +81,7 @@ export function AuthProvider({ children }) {
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    agentClearCredentials();
   };
 
   return (
