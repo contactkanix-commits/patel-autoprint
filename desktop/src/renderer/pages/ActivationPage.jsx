@@ -11,18 +11,17 @@ import {
   Avatar,
   Link,
 } from '@mui/material';
-import { LockOutlined } from '@mui/icons-material';
+import { KeyOutlined } from '@mui/icons-material';
 import { useAuth } from '../AuthContext';
 import { getApiUrl, setApiUrl } from '../settings';
 import toast from 'react-hot-toast';
 
-export default function LoginPage() {
+export default function ActivationPage() {
   const [apiUrl, setApiUrlState] = useState(getApiUrl());
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [agentKey, setAgentKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { activate } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -31,11 +30,11 @@ export default function LoginPage() {
     setLoading(true);
     try {
       setApiUrl(apiUrl);
-      await login(email, password);
-      toast.success('Login successful!');
+      await activate(agentKey.trim());
+      toast.success('Shop activated!');
       navigate('/admin');
     } catch (err) {
-      setError(err.message || 'Invalid credentials');
+      setError(err.message || 'Invalid agent key');
     } finally {
       setLoading(false);
     }
@@ -47,17 +46,32 @@ export default function LoginPage() {
         <Paper elevation={3} sx={{ p: 4, width: '100%' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
             <Avatar sx={{ m: 1, bgcolor: 'primary.main' }}>
-              <LockOutlined />
+              <KeyOutlined />
             </Avatar>
             <Typography component="h1" variant="h5">
-              Patel AutoPrint Admin
+              Patel AutoPrint
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Sign in to manage orders, printers, and pricing
+              Activate this shop with your Agent Key
             </Typography>
           </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Enter the Agent Key provided by Patel AutoPrint. You only need to do
+            this once — after that, the app opens straight to your dashboard.
+          </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              label="Agent Key"
+              value={agentKey}
+              onChange={(e) => setAgentKey(e.target.value)}
+              margin="normal"
+              placeholder="PAP-XXXX-XXXX-XXXX"
+              autoFocus
+              required
+              inputProps={{ style: { textTransform: 'uppercase' } }}
+            />
             <TextField
               fullWidth
               label="API URL"
@@ -65,25 +79,6 @@ export default function LoginPage() {
               onChange={(e) => setApiUrlState(e.target.value)}
               margin="normal"
               placeholder="https://patel-autoprint.onrender.com"
-              autoFocus
-            />
-            <TextField
-              fullWidth
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              margin="normal"
-              required
-            />
-            <TextField
-              fullWidth
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              margin="normal"
-              required
             />
             <Button
               type="submit"
@@ -92,17 +87,17 @@ export default function LoginPage() {
               sx={{ mt: 3, mb: 1 }}
               disabled={loading}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Activating...' : 'Activate'}
             </Button>
           </Box>
           <Box sx={{ textAlign: 'center', mt: 2 }}>
             <Link
               component="button"
               variant="body2"
-              onClick={() => navigate('/activate')}
+              onClick={() => navigate('/login')}
               sx={{ textDecoration: 'none' }}
             >
-              Use your Agent Key instead
+              Sign in with email &amp; password instead
             </Link>
           </Box>
         </Paper>

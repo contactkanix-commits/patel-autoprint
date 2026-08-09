@@ -20,6 +20,18 @@ function agentClearCredentials() {
   }
 }
 
+function storeSession(token, user) {
+  localStorage.setItem('token', token);
+  localStorage.setItem('user', JSON.stringify(user));
+  agentSetCredentials(token);
+}
+
+function clearSession() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  agentClearCredentials();
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
@@ -27,13 +39,21 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const initAuth = async () => {
-      const savedToken = localStorage.getItem('token');
-      const savedUser = localStorage.getItem('user');
+      let savedToken = localStorage.getItem('token');
 
-      if (savedToken && savedUser) {
+      // If localStorage was cleared, fall back to the main-process credential
+      // store so the app opens straight to the dashboard after activation.
+      if (!savedToken && agentAvailable()) {
+        const creds = await window.patelApp.agent.getCredentials();
+        if (creds?.token) {
+          savedToken = creds.token;
+          localStorage.setItem('token', savedToken);
+        }
+      }
+
+      if (savedToken) {
         try {
           setToken(savedToken);
-          setUser(JSON.parse(savedUser));
           const result = await api.get('/auth/profile');
           if (result.success) {
             setUser(result.data);
@@ -41,8 +61,7 @@ export function AuthProvider({ children }) {
           }
           agentSetCredentials(savedToken);
         } catch {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
+          clearSession();
           setToken(null);
           setUser(null);
         }
@@ -53,14 +72,26 @@ export function AuthProvider({ children }) {
 
     if (agentAvailable()) {
       return window.patelApp.agent.onAuthExpired(() => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearSession();
         setToken(null);
         setUser(null);
-        window.location.hash = '#/login';
+        window.location.hash = '#/activate';
       });
     }
   }, []);
+
+  // One-time activation with the agent key provided by Patel AutoPrint.
+  const activate = async (agentKey) => {
+    const result = await api.post('/agent/key-login', { agentKey });
+    if (result.success) {
+      const { token: newToken, user: userData } = result.data;
+      setToken(newToken);
+      setUser(userData);
+      storeSession(newToken, userData);
+      return userData;
+    }
+    throw new Error(result.message || 'Activation failed');
+  };
 
   const login = async (email, password) => {
     const result = await api.post('/auth/login', { email, password });
@@ -68,9 +99,7 @@ export function AuthProvider({ children }) {
       const { token: newToken, user: userData } = result.data;
       setToken(newToken);
       setUser(userData);
-      localStorage.setItem('token', newToken);
-      localStorage.setItem('user', JSON.stringify(userData));
-      agentSetCredentials(newToken);
+      storeSession(newToken, userData);
       return userData;
     }
     throw new Error(result.message || 'Login failed');
@@ -79,9 +108,7 @@ export function AuthProvider({ children }) {
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    agentClearCredentials();
+    clearSession();
   };
 
   return (
@@ -90,6 +117,7 @@ export function AuthProvider({ children }) {
         user,
         token,
         loading,
+        activate,
         login,
         logout,
         isAuthenticated: !!token && !!user,

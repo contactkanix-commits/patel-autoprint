@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const fsPromises = require('fs/promises');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -29,6 +30,23 @@ async function getNextToken(shopId) {
     select: { token: true },
   });
   return (maxOrder?.token || 0) + 1;
+}
+
+// Helper: generate a unique shop agent key (PAP-XXXX-XXXX-XXXX)
+function generateAgentKey() {
+  const hex = crypto.randomBytes(6).toString('hex').toUpperCase();
+  return `PAP-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}`;
+}
+
+// Helper: assign agent keys to any shops created before this feature existed
+async function ensureAgentKeys() {
+  const shops = await prisma.shop.findMany({ where: { agentKey: null }, select: { id: true, name: true } });
+  for (const s of shops) {
+    await prisma.shop.update({ where: { id: s.id }, data: { agentKey: generateAgentKey() } });
+  }
+  if (shops.length > 0) {
+    console.log(`Generated agent keys for ${shops.length} shop(s)`);
+  }
 }
 
 // Helper: detect image files for contact-sheet grouping
@@ -213,7 +231,7 @@ app.post('/api/auth/register', asyncHandler(async (req, res) => {
   }
 
   const shop = await prisma.shop.create({
-    data: { name: shopName },
+    data: { name: shopName, agentKey: generateAgentKey() },
   });
 
   const passwordHash = await bcrypt.hash(password, 10);
@@ -289,6 +307,22 @@ app.get('/api/auth/profile', authenticate, asyncHandler(async (req, res) => {
       shopName: shop ? shop.name : null,
     },
   });
+}));
+
+// View this shop's agent key (so the owner/vendor can copy it to another PC)
+app.get('/api/auth/agent-key', authenticate, asyncHandler(async (req, res) => {
+  const shop = await prisma.shop.findUnique({ where: { id: req.user.shopId } });
+  res.json({ success: true, data: { agentKey: shop ? shop.agentKey : null } });
+}));
+
+// Generate a new agent key for this shop (old key stops working)
+app.post('/api/auth/agent-key/regenerate', authenticate, asyncHandler(async (req, res) => {
+  const agentKey = generateAgentKey();
+  const shop = await prisma.shop.update({
+    where: { id: req.user.shopId },
+    data: { agentKey },
+  });
+  res.json({ success: true, data: { agentKey: shop.agentKey } });
 }));
 
 // ============================================
@@ -1238,6 +1272,39 @@ app.post('/api/agent/login', asyncHandler(async (req, res) => {
   });
 }));
 
+// Activate a shop with a one-time agent key. Returns a long-lived token so the
+// desktop app only needs the key entered once during setup.
+app.post('/api/agent/key-login', asyncHandler(async (req, res) => {
+  const { agentKey } = req.body;
+  if (!agentKey) throw new AppError('Agent key is required', 400, 'MISSING_AGENT_KEY');
+
+  const shop = await prisma.shop.findFirst({
+    where: { agentKey: String(agentKey).trim().toUpperCase() },
+  });
+  if (!shop) throw new AppError('Invalid agent key', 401, 'INVALID_AGENT_KEY');
+
+  let user = await prisma.user.findFirst({ where: { shopId: shop.id, role: 'OWNER' } });
+  if (!user) user = await prisma.user.findFirst({ where: { shopId: shop.id } });
+  if (!user) throw new AppError('No account found for this shop', 404, 'NO_USER');
+
+  const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '365d' });
+
+  res.json({
+    success: true,
+    data: {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        shopId: shop.id,
+        shopName: shop.name,
+      },
+    },
+  });
+}));
+
 // Get pending print jobs for this shop
 app.get('/api/agent/jobs', authenticate, asyncHandler(async (req, res) => {
   const shopId = req.user.shopId;
@@ -1348,6 +1415,8 @@ const start = async () => {
   try {
     await prisma.$connect();
     console.log('Database connected successfully');
+
+    await ensureAgentKeys();
 
     const server = createServer(app);
 

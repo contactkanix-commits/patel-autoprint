@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { useAuth } from './AuthContext';
 
 import LoginPage from './pages/LoginPage';
+import ActivationPage from './pages/ActivationPage';
 import AdminLayout from './pages/admin/AdminLayout';
 import DashboardPage from './pages/admin/DashboardPage';
 import OrderQueuePage from './pages/admin/OrderQueuePage';
@@ -23,7 +24,7 @@ function RequireAuth({ children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/activate" replace />;
   }
 
   return children;
@@ -32,6 +33,7 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/activate" element={<ActivationPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         path="/admin"

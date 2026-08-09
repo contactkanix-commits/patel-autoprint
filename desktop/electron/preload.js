@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('patelApp', {
     start: () => ipcRenderer.invoke('agent:start'),
     stop: () => ipcRenderer.invoke('agent:stop'),
     getStatus: () => ipcRenderer.invoke('agent:get-status'),
+    getCredentials: () => ipcRenderer.invoke('agent:get-credentials'),
     onStatus: (callback) => {
       const listener = (_e, data) => callback(data);
       ipcRenderer.on('agent:status', listener);

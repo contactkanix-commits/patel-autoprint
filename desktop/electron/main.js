@@ -154,6 +154,11 @@ function registerIpc() {
 
   ipcMain.handle('agent:get-status', () => agent.snapshot());
 
+  ipcMain.handle('agent:get-credentials', () => {
+    const creds = loadCredentials();
+    return creds ? { apiUrl: creds.apiUrl, token: creds.token } : null;
+  });
+
   ipcMain.handle('printers:list-system', () => listSystemPrinters());
 }
 
