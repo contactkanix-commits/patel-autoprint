@@ -54,6 +54,10 @@ import {
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { useThemeMode } from '../utils/ThemeContext';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const stepLabels = ['Upload', 'Configure', 'Pay', 'Done'];
 
@@ -65,6 +69,11 @@ const pagesPerSheetOptions = [1, 2, 4, 6, 9, 16];
 function isImageFile(file) {
   const name = (file?.originalName || file?.name || '').toLowerCase();
   return /\.(jpg|jpeg|png|webp)$/.test(name);
+}
+
+function isPdfFile(file) {
+  const name = (file?.originalName || file?.name || '').toLowerCase();
+  return name.endsWith('.pdf');
 }
 
 // Keyframe animations
@@ -474,6 +483,114 @@ function CopiesStepper({ value, onChange }) {
   );
 }
 
+function PdfPageThumb({ doc, pageNum, colorMode }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let renderTask = null;
+    doc
+      .getPage(pageNum)
+      .then((page) => {
+        if (cancelled) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const vp1 = page.getViewport({ scale: 1 });
+        const scale = 220 / vp1.width;
+        const vp = page.getViewport({ scale });
+        canvas.width = Math.floor(vp.width);
+        canvas.height = Math.floor(vp.height);
+        renderTask = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp });
+        return renderTask.promise;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (renderTask) {
+        try {
+          renderTask.cancel();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, [doc, pageNum]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
+      }}
+    />
+  );
+}
+
+function PdfPages({ url, pagesToShow, colorMode }) {
+  const [doc, setDoc] = useState(null);
+
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    let loaded = null;
+    pdfjsLib
+      .getDocument(url)
+      .promise.then((d) => {
+        loaded = d;
+        if (!cancelled) setDoc(d);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (loaded) loaded.destroy();
+    };
+  }, [url]);
+
+  if (!doc) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100%',
+          height: '100%',
+          bgcolor: '#fff',
+        }}
+      >
+        <CircularProgress size={18} sx={{ color: '#9e9e9e' }} />
+      </Box>
+    );
+  }
+
+  return (
+    <>
+      {Array.from({ length: pagesToShow }).map((_, i) => {
+        const pageNum = i + 1;
+        if (pageNum > doc.numPages) return null;
+        return (
+          <Box
+            key={pageNum}
+            sx={{
+              bgcolor: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              border: '1px dashed #e0e0e0',
+            }}
+          >
+            <PdfPageThumb doc={doc} pageNum={pageNum} colorMode={colorMode} />
+          </Box>
+        );
+      })}
+    </>
+  );
+}
+
 function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const isImage = isImageFile(file);
   const pps = settings.pagesPerSheet || 1;
@@ -528,45 +645,51 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
           p: pps > 1 ? 1.5 : 2,
         }}
       >
-        {Array.from({ length: cells }).map((_, i) => (
-          <Box
-            key={i}
-            sx={{
-              position: 'relative',
-              bgcolor: '#fff',
-              overflow: 'hidden',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px dashed #e0e0e0',
-            }}
-          >
-            {isImage ? (
-              imageUrls?.[i] ? (
-                <img
-                  src={imageUrls[i]}
-                  alt={`Image ${i + 1}`}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
-                  }}
-                />
+        {isPdfFile(file) && fileUrl(file) ? (
+          <PdfPages url={fileUrl(file)} pagesToShow={cells} colorMode={colorMode} />
+        ) : (
+          Array.from({ length: cells }).map((_, i) => (
+            <Box
+              key={i}
+              sx={{
+                position: 'relative',
+                bgcolor: '#fff',
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px dashed #e0e0e0',
+              }}
+            >
+              {isImage ? (
+                imageUrls?.[i] ? (
+                  <img
+                    src={imageUrls[i]}
+                    alt={`Image ${i + 1}`}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain',
+                      padding: pps > 1 ? 2 : 8,
+                      boxSizing: 'border-box',
+                      filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
+                    }}
+                  />
+                ) : (
+                  <ImageIcon sx={{ fontSize: 40, color: '#bdbdbd' }} />
+                )
               ) : (
-                <ImageIcon sx={{ fontSize: 40, color: '#bdbdbd' }} />
-              )
-            ) : (
-              <Box sx={{ width: '80%', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                <Box sx={{ height: 6, width: '60%', bgcolor: '#e0e0e0', borderRadius: 1 }} />
-                <Box sx={{ height: 6, width: '90%', bgcolor: '#ececec', borderRadius: 1 }} />
-                <Box sx={{ height: 6, width: '75%', bgcolor: '#ececec', borderRadius: 1 }} />
-                <Box sx={{ height: 6, width: '85%', bgcolor: '#ececec', borderRadius: 1 }} />
-                <Box sx={{ height: 6, width: '55%', bgcolor: '#ececec', borderRadius: 1 }} />
-              </Box>
-            )}
-          </Box>
-        ))}
+                <Box sx={{ width: '80%', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  <Box sx={{ height: 6, width: '60%', bgcolor: '#e0e0e0', borderRadius: 1 }} />
+                  <Box sx={{ height: 6, width: '90%', bgcolor: '#ececec', borderRadius: 1 }} />
+                  <Box sx={{ height: 6, width: '75%', bgcolor: '#ececec', borderRadius: 1 }} />
+                  <Box sx={{ height: 6, width: '85%', bgcolor: '#ececec', borderRadius: 1 }} />
+                  <Box sx={{ height: 6, width: '55%', bgcolor: '#ececec', borderRadius: 1 }} />
+                </Box>
+              )}
+            </Box>
+          ))
+        )}
         {allImages && totalImages > cells && (
           <Box
             sx={{
