@@ -190,18 +190,6 @@ function StepIndicator({ activeStep }) {
   );
 }
 
-function PrivacyNote() {
-  return (
-    <Alert severity="info" icon={<LockOutlined fontSize="small" />} sx={{ mb: 2 }}>
-      <Typography variant="caption" display="block">
-        <b>Privacy:</b> Your files are used only to print. After printing they are deleted
-        automatically. We do not keep a copy for viewing — only a print receipt (pages / amount)
-        stays for the shop bill.
-      </Typography>
-    </Alert>
-  );
-}
-
 const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
   const [dragActive, setDragActive] = useState(false);
   const uploadInputRef = useRef(null);
@@ -590,6 +578,85 @@ function PdfPages({ url, pagesToShow, colorMode }) {
   );
 }
 
+function useImageDims(urls) {
+  const [dims, setDims] = useState({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const next = {};
+    const pending = urls.filter(Boolean);
+    if (pending.length === 0) {
+      setDims({});
+      return;
+    }
+    let done = 0;
+    pending.forEach((url) => {
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled) return;
+        next[url] = { w: img.naturalWidth, h: img.naturalHeight };
+        done += 1;
+        if (done === pending.length) setDims({ ...next });
+      };
+      img.onerror = () => {
+        done += 1;
+        if (done === pending.length) setDims({ ...next });
+      };
+      img.src = url;
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urls.join('|')]);
+
+  return dims;
+}
+
+function PreviewImage({ url, imgW, imgH, cellW, cellH, rotate, colorMode, pps }) {
+  if (!rotate) {
+    return (
+      <img
+        src={url}
+        alt=""
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          padding: pps > 1 ? 2 : 8,
+          boxSizing: 'border-box',
+          filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
+        }}
+      />
+    );
+  }
+
+  const scale = Math.min(cellW / imgH, cellH / imgW);
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%) rotate(90deg)',
+        width: `${(imgW * scale) / cellW * 100}%`,
+        height: `${(imgH * scale) / cellH * 100}%`,
+      }}
+    >
+      <img
+        src={url}
+        alt=""
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'fill',
+          filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
+        }}
+      />
+    </Box>
+  );
+}
+
 function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const isImage = isImageFile(file);
   const pps = settings.pagesPerSheet || 1;
@@ -599,8 +666,10 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const pageCount = file?.pageCount || 1;
   const portrait = settings.orientation !== 'landscape';
 
+  const imageDims = useImageDims(allImages ? imageUrls : []);
+
   const cells = allImages
-    ? Math.min(pps, Math.max(1, totalImages || 1))
+    ? Math.max(1, pps)
     : isImage
       ? 1
       : pps;
@@ -609,6 +678,11 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
     : Math.max(1, Math.ceil(pageCount / pps));
   const cols = gridColumnsFor(pps);
   const totalPages = sheets * copies;
+  const rows = Math.max(1, Math.ceil(cells / cols));
+  const pageW = portrait ? 210 : 297;
+  const pageH = portrait ? 297 : 210;
+  const cellW = pageW / cols;
+  const cellH = pageH / rows;
 
   const summary = [
     paper,
@@ -661,20 +735,23 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
               }}
             >
               {isImage ? (
-                imageUrls?.[i] ? (
-                  <img
-                    src={imageUrls[i]}
-                    alt={`Image ${i + 1}`}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain',
-                      padding: pps > 1 ? 2 : 8,
-                      boxSizing: 'border-box',
-                      filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
-                    }}
-                  />
-                ) : (
+                imageUrls?.[i] ? (() => {
+                  const url = imageUrls[i];
+                  const dims = imageDims[url];
+                  const rotate = dims && dims.w !== dims.h && (dims.w > dims.h) !== (cellW > cellH);
+                  return (
+                    <PreviewImage
+                      url={url}
+                      imgW={dims?.w}
+                      imgH={dims?.h}
+                      cellW={cellW}
+                      cellH={cellH}
+                      rotate={rotate}
+                      colorMode={colorMode}
+                      pps={pps}
+                    />
+                  );
+                })() : (
                   <ImageIcon sx={{ fontSize: 40, color: '#bdbdbd' }} />
                 )
               ) : (
@@ -1479,8 +1556,6 @@ export default function CustomerPortal() {
           )}
 
           <StepIndicator activeStep={activeStep} />
-
-          {activeStep < 3 && <PrivacyNote />}
 
           <Paper sx={{ p: { xs: 2, sm: 2.5 }, mb: 2 }}>
             {activeStep === 0 && (
