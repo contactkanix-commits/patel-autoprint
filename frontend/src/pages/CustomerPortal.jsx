@@ -400,9 +400,8 @@ function fileUrl(file) {
 
 function gridColumnsFor(pps) {
   if (pps >= 16) return 4;
-  if (pps >= 6) return 3;
+  if (pps >= 9) return 3;
   if (pps >= 4) return 2;
-  if (pps >= 2) return 2;
   return 1;
 }
 
