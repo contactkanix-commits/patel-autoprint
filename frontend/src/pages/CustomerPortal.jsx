@@ -23,9 +23,6 @@ import {
   Avatar,
   ButtonBase,
   Zoom,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   keyframes,
 } from '@mui/material';
 import {
@@ -53,8 +50,6 @@ import {
   CreditCard,
   QrCode2,
   Image as ImageIcon,
-  ExpandMore,
-  Tune as TuneIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -905,7 +900,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
             Photos per page
           </Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 0.75 }}>
-            {pagesPerSheetOptions.map((n) => {
+            {pagesPerSheetOptions.filter((n) => n > 1).map((n) => {
               const selected = (s.pagesPerSheet || 1) === n;
               return (
                 <ButtonBase
@@ -924,7 +919,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                     '&:hover': { borderColor: 'primary.main' },
                   }}
                 >
-                  {n === 1 ? '1' : n}
+                  {n}
                 </ButtonBase>
               );
             })}
@@ -951,115 +946,74 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
               </Grid>
               <Grid item xs={12} sm={7}>
                 <OptionGroup
+                  label="Paper Size"
+                  cols={2}
+                  value={s.paperSize || 'A4'}
+                  onChange={(v) => updateSetting(activeTab, 'paperSize', v)}
+                  options={paperSizes.map((ps) => ({ value: ps, label: ps }))}
+                />
+                <OptionGroup
                   label="Color"
                   cols={2}
                   value={s.colorMode || 'bw'}
                   onChange={(v) => (allImages ? updateAllImageSettings('colorMode', v) : updateSetting(activeTab, 'colorMode', v))}
                   options={[
-                    { value: 'bw', label: 'Black & White' },
+                    { value: 'bw', label: 'B/W' },
                     { value: 'color', label: 'Color' },
                   ]}
                 />
-                <CopiesStepper value={s.copies ?? 1} onChange={(v) => updateSetting(activeTab, 'copies', v)} />
-
-                {!allImages && (
+                <OptionGroup
+                  label="Sides"
+                  cols={2}
+                  value={s.printStyle || 'single'}
+                  onChange={(v) => updateSetting(activeTab, 'printStyle', v)}
+                  options={[
+                    { value: 'single', label: 'Single-sided' },
+                    { value: 'duplex', label: 'Double-sided' },
+                  ]}
+                />
+                <OptionGroup
+                  label="Orientation"
+                  cols={3}
+                  value={s.orientation || 'auto'}
+                  onChange={(v) => updateSetting(activeTab, 'orientation', v)}
+                  options={orientations.map((o) => ({
+                    value: o,
+                    label: o === 'auto' ? 'Auto' : o.charAt(0).toUpperCase() + o.slice(1),
+                  }))}
+                />
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <CopiesStepper value={s.copies ?? 1} onChange={(v) => updateSetting(activeTab, 'copies', v)} />
                   <OptionGroup
-                    label="Pages per sheet"
-                    cols={4}
+                    label="Pages / Sheet"
+                    cols={3}
                     value={s.pagesPerSheet || 1}
-                    onChange={(v) => updateSetting(activeTab, 'pagesPerSheet', parseInt(v))}
+                    onChange={(v) => (allImages
+                      ? updateAllImageSettings('pagesPerSheet', parseInt(v))
+                      : updateSetting(activeTab, 'pagesPerSheet', parseInt(v)))}
                     options={pagesPerSheetOptions.map((n) => ({ value: n, label: n === 1 ? '1' : String(n) }))}
                   />
-                )}
-
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, my: 1.5 }}>
-                  <Divider sx={{ flex: 1 }} />
-                  <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
-                    More options
-                  </Typography>
-                  <Divider sx={{ flex: 1 }} />
                 </Box>
-
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <OptionGroup
-                      label="Paper Size"
-                      cols={2}
-                      value={s.paperSize || 'A4'}
-                      onChange={(v) => updateSetting(activeTab, 'paperSize', v)}
-                      options={paperSizes.map((ps) => ({ value: ps, label: ps }))}
-                    />
-                  </Grid>
-                  <Grid item xs={6}>
-                    <OptionGroup
-                      label="Orientation"
-                      cols={3}
-                      value={s.orientation || 'auto'}
-                      onChange={(v) => updateSetting(activeTab, 'orientation', v)}
-                      options={orientations.map((o) => ({
-                        value: o,
-                        label: o === 'auto' ? 'Auto' : o.charAt(0).toUpperCase() + o.slice(1),
-                      }))}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <OptionGroup
-                      label="Sides"
-                      cols={2}
-                      value={s.printStyle || 'single'}
-                      onChange={(v) => updateSetting(activeTab, 'printStyle', v)}
-                      options={[
-                        { value: 'single', label: 'One-sided' },
-                        { value: 'duplex', label: 'Both sides' },
-                      ]}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    {!(s.sections || []).length > 0 && (
-                      <TextField
-                        fullWidth size="small" label="Page range"
-                        value={s.pageRange || ''}
-                        onChange={(e) => updateSetting(activeTab, 'pageRange', e.target.value)}
-                        placeholder="e.g. 1-5, 8, 10-12"
-                        helperText="Leave empty = all pages"
-                      />
-                    )}
-                  </Grid>
-                </Grid>
+                {!(s.sections || []).length > 0 && (
+                  <TextField
+                    fullWidth size="small" label="Page range"
+                    value={s.pageRange || ''}
+                    onChange={(e) => updateSetting(activeTab, 'pageRange', e.target.value)}
+                    placeholder="e.g. 1-5, 8, 10-12"
+                    helperText="Leave empty = all pages"
+                  />
+                )}
               </Grid>
             </Grid>
 
-            <Accordion
-              elevation={0}
-              disableGutters
-              defaultExpanded={(s.sections || []).length > 0}
-              sx={{
-                mt: 1,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 1.5,
-                '&:before': { display: 'none' },
-              }}
-            >
-              <AccordionSummary
-                expandIcon={<ExpandMore fontSize="small" />}
-                sx={{ '&.Mui-expanded': { minHeight: 0 } }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <TuneIcon fontSize="small" color="action" />
-                  <Typography variant="body2" fontWeight={700}>Print sections</Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'inline' } }}>
-                    (advanced — different options for parts of the file)
-                  </Typography>
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails sx={{ p: 0.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                  <Typography variant="caption" fontWeight={600}>Set different options for parts of the file</Typography>
-                  <Button size="small" startIcon={<Add />} onClick={() => addSection(activeTab)} sx={{ textTransform: 'none' }}>
-                    Add section
-                  </Button>
-                </Box>
+            <Divider sx={{ my: 1.5 }} />
+
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="caption" fontWeight={600}>Print Sections (advanced)</Typography>
+              <Button size="small" startIcon={<Add />} onClick={() => addSection(activeTab)} sx={{ textTransform: 'none' }}>
+                Add
+              </Button>
+            </Box>
 
             {(s.sections || []).length > 0 ? (
               (s.sections || []).map((section, si) => (
@@ -1158,8 +1112,6 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                 No sections — entire file uses same settings above.
               </Typography>
             )}
-              </AccordionDetails>
-            </Accordion>
           </CardContent>
         </Card>
       )}
