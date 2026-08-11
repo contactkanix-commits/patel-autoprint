@@ -7,6 +7,7 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   getContentType,
+  extractMessageContent,
   downloadMediaMessage,
 } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
@@ -255,7 +256,11 @@ class WhatsAppClient extends EventEmitter {
 
     const customerPhone = remoteJid.split('@')[0];
     const customerName = msg.pushName || null;
-    const content = getContentType(msg.message);
+
+    // Unwrap ephemeralMessage, viewOnceMessage, etc. to get the real content
+    const unwrapped = extractMessageContent(msg.message);
+    const content = getContentType(unwrapped);
+    this.log('debug', `Unwrapped content type: ${content} (raw keys: ${Object.keys(msg.message || {}).join(', ')})`);
     if (!content) return;
 
     // 'append' messages arrive from offline queueing or history sync. Only
@@ -273,7 +278,7 @@ class WhatsAppClient extends EventEmitter {
     this.log('info', `Message from +${customerPhone} (${content})`);
 
     if (content !== 'imageMessage' && content !== 'documentMessage') {
-      const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim();
+      const text = (unwrapped?.conversation || unwrapped?.extendedTextMessage?.text || '').trim();
       const pendingLink = this.pendingDone.get(customerPhone);
       if (pendingLink && /^(done|finish|finished|ready|ok|link)$/i.test(text)) {
         this.pendingDone.delete(customerPhone);
@@ -290,7 +295,7 @@ class WhatsAppClient extends EventEmitter {
       return;
     }
 
-    const media = msg.message[content];
+    const media = unwrapped[content];
     const mime = media?.mimetype || '';
     const originalName =
       content === 'documentMessage' && media?.filename
