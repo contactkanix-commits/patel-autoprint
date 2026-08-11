@@ -244,7 +244,8 @@ class WhatsAppClient extends EventEmitter {
     this.log('debug', `handleMessage: fromMe=${msg.key?.fromMe}, remoteJid=${msg.key?.remoteJid}, id=${msg.key?.id}`);
     if (msg.key?.fromMe) { this.log('debug', 'skip: fromMe'); return; }
     const remoteJid = msg.key?.remoteJid || '';
-    if (!remoteJid.endsWith('@s.whatsapp.net')) { this.log('debug', 'skip: not s.whatsapp.net'); return; }
+    const isUserJid = remoteJid.endsWith('@s.whatsapp.net') || remoteJid.endsWith('@lid');
+    if (!isUserJid) { this.log('debug', `skip: not user jid (${remoteJid})`); return; }
     const msgId = msg.key.id || '';
 
     const dedupeKey = `${remoteJid}:${msgId}`;
@@ -255,7 +256,9 @@ class WhatsAppClient extends EventEmitter {
       this.recentIds.delete(first);
     }
 
-    const customerPhone = remoteJid.split('@')[0];
+    // Use the full remoteJid as the customer identifier (works for both PN and LID)
+    const customerId = remoteJid;
+    const customerPhoneForBackend = remoteJid.endsWith('@s.whatsapp.net') ? remoteJid.split('@')[0] : remoteJid;
     const customerName = msg.pushName || null;
 
     // Unwrap ephemeralMessage, viewOnceMessage, etc. to get the real content
@@ -271,25 +274,25 @@ class WhatsAppClient extends EventEmitter {
       const ts = Number(msg.messageTimestamp || 0);
       const ageMin = (Date.now() / 1000 - ts) / 60;
       if (ageMin > 15) {
-        this.log('debug', `Skipping stale append message (+${customerPhone}, ${ageMin.toFixed(0)}m old)`);
+        this.log('debug', `Skipping stale append message (${customerId}, ${ageMin.toFixed(0)}m old)`);
         return;
       }
     }
 
-    this.log('info', `Message from +${customerPhone} (${content})`);
+    this.log('info', `Message from ${customerId} (${content})`);
 
     if (content !== 'imageMessage' && content !== 'documentMessage') {
       const text = (unwrapped?.conversation || unwrapped?.extendedTextMessage?.text || '').trim();
-      const pendingLink = this.pendingDone.get(customerPhone);
+      const pendingLink = this.pendingDone.get(customerId);
       if (pendingLink && /^(done|finish|finished|ready|ok|link)$/i.test(text)) {
-        this.pendingDone.delete(customerPhone);
+        this.pendingDone.delete(customerId);
         await this.reply(
-          customerPhone,
+          customerId,
           `Great! Tap this link to set your print options:\n${pendingLink}`
         );
       } else if (text) {
         await this.reply(
-          customerPhone,
+          customerId,
           `👋 Welcome to ${this.shopName || 'our shop'}!\nSend me your files (PDF, Word, PPT, Excel, JPG, PNG) and I will send you a link to set your print options.`
         );
       }
@@ -305,7 +308,7 @@ class WhatsAppClient extends EventEmitter {
 
     if (!ALLOWED_EXT.test(originalName)) {
       await this.reply(
-        customerPhone,
+        customerId,
         `Sorry, I can't print "${originalName}" (${mime || 'unknown type'}). Please send PDF, Word, PPT, Excel, JPG or PNG.`
       );
       return;
@@ -325,11 +328,11 @@ class WhatsAppClient extends EventEmitter {
       );
     } catch (err) {
       this.log('error', `Media download failed: ${err.message}`);
-      await this.reply(customerPhone, 'Something went wrong receiving that file. Please try again.');
+      await this.reply(customerId, 'Something went wrong receiving that file. Please try again.');
       return;
     }
     if (!buffer) {
-      await this.reply(customerPhone, 'Could not download that file. Please try again.');
+      await this.reply(customerId, 'Could not download that file. Please try again.');
       return;
     }
 
@@ -340,15 +343,15 @@ class WhatsAppClient extends EventEmitter {
       fs.writeFileSync(tmpPath, buffer);
     } catch (err) {
       this.log('error', `Failed to write media to disk: ${err.message}`);
-      await this.reply(customerPhone, 'Something went wrong saving that file. Please try again.');
+      await this.reply(customerId, 'Something went wrong saving that file. Please try again.');
       return;
     }
 
-    this.log('info', `Received "${originalName}" from +${customerPhone}`);
+    this.log('info', `Received "${originalName}" from ${customerId}`);
 
     let data;
     try {
-      data = await this.uploadFiles(customerPhone, customerName, [
+      data = await this.uploadFiles(customerPhoneForBackend, customerName, [
         { path: tmpPath, name: originalName, mimeType: mime },
       ]);
     } catch (err) {
@@ -394,10 +397,10 @@ class WhatsAppClient extends EventEmitter {
     return json.data;
   }
 
-  async reply(customerPhone, text) {
+  async reply(customerJid, text) {
     if (!this.socket) return;
     try {
-      await this.socket.sendMessage(`${customerPhone}@s.whatsapp.net`, { text });
+      await this.socket.sendMessage(customerJid, { text });
     } catch (err) {
       this.log('error', `Reply send failed: ${err.message}`);
     }
