@@ -33,6 +33,16 @@ async function getNextToken(shopId) {
   return (maxOrder?.token || 0) + 1;
 }
 
+// Helper: load a shop's own pricing rates (fall back to defaults)
+async function getShopPricingConfig(shopId) {
+  const pricing = shopId ? await prisma.pricingRule.findFirst({ where: { shopId } }) : null;
+  return {
+    bwPerPage: pricing?.bwPerPage ?? 1,
+    colorPerPage: pricing?.colorPerPage ?? 5,
+    colorDuplexPerPage: pricing?.colorDuplexPerPage ?? 10,
+  };
+}
+
 // Helper: generate a unique shop agent key (PAP-XXXX-XXXX-XXXX)
 function generateAgentKey() {
   const hex = crypto.randomBytes(6).toString('hex').toUpperCase();
@@ -518,7 +528,7 @@ app.post('/api/upload', authenticate, upload.array('files', 20), asyncHandler(as
     printStyle: 'single',
     copies: 1,
     pagesPerSheet: 1,
-  });
+  }, await getShopPricingConfig(shopId));
 
   await prisma.order.update({
     where: { id: order.id },
@@ -590,7 +600,7 @@ app.put('/api/orders/:id/settings', authenticate, asyncHandler(async (req, res) 
   }
 
   const fileSettings = settings || { paperSize: 'A4', printStyle: 'single', copies: 1, pagesPerSheet: 1, colorMode: 'bw' };
-  const pricing = calculatePrice(totalPages, totalColorPages, fileSettings);
+  const pricing = calculatePrice(totalPages, totalColorPages, fileSettings, await getShopPricingConfig(order.shopId));
 
   await prisma.order.update({
     where: { id },
@@ -647,7 +657,7 @@ app.get('/api/orders/:id/price', authenticate, asyncHandler(async (req, res) => 
     printStyle: 'single',
     copies: 1,
     pagesPerSheet: 1,
-  });
+  }, await getShopPricingConfig(order.shopId));
 
   res.json({ success: true, data: pricing });
 }));
@@ -837,7 +847,7 @@ app.put('/api/guest/orders/:id/settings', asyncHandler(async (req, res) => {
   }
 
   const avgSettings = settings || { paperSize: 'A4', printStyle: 'single', copies: 1, pagesPerSheet: 1, colorMode: 'auto' };
-  const pricing = calculatePrice(totalPages, totalColorPages, avgSettings);
+  const pricing = calculatePrice(totalPages, totalColorPages, avgSettings, await getShopPricingConfig(order.shopId));
 
   await prisma.order.update({
     where: { id },
@@ -868,6 +878,7 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
   });
   if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
 
+  const pricingConfig = await getShopPricingConfig(order.shopId);
   const breakdowns = [];
   let grandTotal = 0;
 
@@ -887,7 +898,7 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
       printStyle: 'single',
       copies,
       pagesPerSheet: 1, // already collapsed to sheets
-    });
+    }, pricingConfig);
     breakdowns.push({
       fileId: imageFiles[0].id,
       fileName: `Contact sheet (${imageFiles.length} photos × ${nUp}/page)`,
@@ -922,7 +933,7 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
           copies: sec.copies || s.copies || 1,
           pagesPerSheet: sec.pagesPerSheet || s.pagesPerSheet || 1,
         };
-        const price = calculatePrice(secPages, secColorPages, secSettings);
+        const price = calculatePrice(secPages, secColorPages, secSettings, pricingConfig);
         fileBreakdown.push({
           label: 'Section ' + (sections.indexOf(sec) + 1) + ' (p' + sec.startPage + '-' + sec.endPage + ')',
           pageCount: secPages,
@@ -948,7 +959,7 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
       const actualPages = countPagesFromRange(s.pageRange, file.pageCount);
       const colorRatio = file.pageCount > 0 ? file.colorPageCount / file.pageCount : 0;
       const actualColorPages = Math.round(actualPages * colorRatio);
-      const price = calculatePrice(actualPages, actualColorPages, s);
+      const price = calculatePrice(actualPages, actualColorPages, s, pricingConfig);
       breakdowns.push({
         fileId: file.id,
         fileName: file.originalName,
@@ -982,6 +993,14 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
   if (order.status !== 'PENDING') throw new AppError('Order already processed', 400, 'ORDER_NOT_PENDING');
 
+  // Respect the shop's accepted payment methods (empty/missing = accept all)
+  const shop = await prisma.shop.findUnique({ where: { id: order.shopId } });
+  const accepted = (shop?.settings || {}).acceptedPaymentMethods || ALL_PAYMENT_METHODS;
+  const method = paymentMethod || 'cash';
+  if (!accepted.includes(method)) {
+    throw new AppError('This shop does not accept this payment method', 400, 'PAYMENT_METHOD_NOT_ACCEPTED');
+  }
+
   const printers = await prisma.printer.findMany({ where: { shopId: order.shopId } });
   const printJobs = [];
 
@@ -995,7 +1014,7 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
     data: {
       status: 'APPROVED',
       paymentStatus: 'PAID',
-      paymentMethod: paymentMethod || 'cash',
+      paymentMethod: method,
       approvedAt: new Date(),
     },
   });
@@ -1388,6 +1407,7 @@ app.get('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
       upiQrUrl: settings.upiQrUrl || '',
       defaultBwPrinter: settings.defaultBwPrinter || '',
       defaultColorPrinter: settings.defaultColorPrinter || '',
+      acceptedPaymentMethods: settings.acceptedPaymentMethods || ALL_PAYMENT_METHODS,
     },
   });
 }));
@@ -1417,6 +1437,27 @@ app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
   }
 
   res.json({ success: true, data: { message: 'Settings saved' } });
+}));
+
+const ALL_PAYMENT_METHODS = ['cash', 'card', 'upi', 'online'];
+
+app.put('/api/settings/payment-methods', authenticate, asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const { acceptedPaymentMethods } = req.body;
+
+  let methods = Array.isArray(acceptedPaymentMethods) ? acceptedPaymentMethods : [];
+  methods = methods.filter((m) => ALL_PAYMENT_METHODS.includes(m));
+  if (methods.length === 0) {
+    methods = ALL_PAYMENT_METHODS; // empty = accept everything
+  }
+
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  await prisma.shop.update({
+    where: { id: shopId },
+    data: { settings: { ...(shop?.settings || {}), acceptedPaymentMethods: methods } },
+  });
+
+  res.json({ success: true, data: { acceptedPaymentMethods: methods } });
 }));
 
 app.get('/api/settings/public/upi-qr', asyncHandler(async (req, res) => {

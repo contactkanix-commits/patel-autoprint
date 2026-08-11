@@ -1134,7 +1134,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
   );
 }
 
-function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadingPrice, upiQrUrl }) {
+function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadingPrice, upiQrUrl, acceptedMethods }) {
   if (loadingPrice) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, py: 8 }}>
@@ -1149,7 +1149,7 @@ function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadin
     { value: 'card', label: 'Card', sub: 'Pay at counter', icon: <CreditCard /> },
     { value: 'upi', label: 'UPI', sub: 'Scan to pay', icon: <QrCode2 /> },
     { value: 'online', label: 'Online', sub: 'Pay online', icon: <Payments /> },
-  ];
+  ].filter((opt) => !acceptedMethods || acceptedMethods.includes(opt.value));
 
   return (
     <Box>
@@ -1221,7 +1221,7 @@ function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadin
       )}
 
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>How will you pay?</Typography>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' }, gap: 1 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 1 }}>
         {paymentOptions.map((opt) => {
           const selected = paymentMethod === opt.value;
           return (
@@ -1501,6 +1501,15 @@ export default function CustomerPortal() {
     if (activeStep === 2 && uploadedOrder) fetchPrice();
   }, [activeStep, uploadedOrder?.id]);
 
+  // Keep the selected payment method valid for this shop (default = first accepted)
+  useEffect(() => {
+    if (activeStep !== 2) return;
+    const accepted = shop?.settings?.acceptedPaymentMethods;
+    if (Array.isArray(accepted) && accepted.length > 0 && !accepted.includes(paymentMethod)) {
+      setPaymentMethod(accepted[0]);
+    }
+  }, [activeStep, shop, paymentMethod]);
+
   const handlePlaceOrder = async () => {
     if (!uploadedOrder || !paymentMethod) { toast.error('Select payment method'); return; }
     setLoading(true);
@@ -1581,7 +1590,8 @@ export default function CustomerPortal() {
             )}
             {activeStep === 2 && (
               <Step3Review order={uploadedOrder} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
-                priceData={priceData} loadingPrice={loadingPrice} upiQrUrl={upiQrUrl} />
+                priceData={priceData} loadingPrice={loadingPrice} upiQrUrl={upiQrUrl}
+                acceptedMethods={shop?.settings?.acceptedPaymentMethods} />
             )}
             {activeStep === 3 && (
               <Step4Confirmation order={uploadedOrder} total={displayTotal} />

@@ -19,6 +19,10 @@ import {
 import {
   Save as SaveIcon,
   Upload as UploadIcon,
+  LocalMall,
+  CreditCard,
+  QrCode2,
+  Payments,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -29,11 +33,19 @@ const defaultPricing = {
   colorDuplexPerPage: 10,
 };
 
+const paymentMethodOptions = [
+  { value: 'cash', label: 'Cash', icon: <LocalMall /> },
+  { value: 'card', label: 'Card', icon: <CreditCard /> },
+  { value: 'upi', label: 'UPI', icon: <QrCode2 /> },
+  { value: 'online', label: 'Online', icon: <Payments /> },
+];
+
 export default function SettingsPage() {
   const [pricing, setPricing] = useState(defaultPricing);
   const [upiQrUrl, setUpiQrUrl] = useState('');
   const [defaultBwPrinter, setDefaultBwPrinter] = useState('');
   const [defaultColorPrinter, setDefaultColorPrinter] = useState('');
+  const [acceptedMethods, setAcceptedMethods] = useState([]);
   const [printers, setPrinters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,6 +65,7 @@ export default function SettingsPage() {
         setUpiQrUrl(result.data.upiQrUrl || '');
         setDefaultBwPrinter(result.data.defaultBwPrinter || '');
         setDefaultColorPrinter(result.data.defaultColorPrinter || '');
+        setAcceptedMethods(result.data.acceptedPaymentMethods || ['cash', 'card', 'upi', 'online']);
       }
     } catch {
       // Use defaults
@@ -76,6 +89,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await api.put('/settings/pricing', { ...pricing, upiQrUrl, defaultBwPrinter, defaultColorPrinter });
+      await api.put('/settings/payment-methods', { acceptedPaymentMethods: acceptedMethods });
       toast.success('Settings saved');
     } catch {
       toast.error('Failed to save settings');
@@ -219,6 +233,56 @@ export default function SettingsPage() {
               </FormControl>
             </Grid>
           </Grid>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ maxWidth: 600, mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>Accepted Payment Methods</Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Choose which payment options customers see in the portal. Tap a method to toggle it.
+          </Typography>
+
+          <Grid container spacing={1}>
+            {paymentMethodOptions.map((opt) => {
+              const selected = acceptedMethods.includes(opt.value);
+              return (
+                <Grid item xs={6} sm={3} key={opt.value}>
+                  <Box
+                    onClick={() => {
+                      setAcceptedMethods((prev) =>
+                        selected ? prev.filter((m) => m !== opt.value) : [...prev, opt.value]
+                      );
+                    }}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      cursor: 'pointer',
+                      border: '1.5px solid',
+                      borderColor: selected ? 'primary.main' : 'divider',
+                      bgcolor: selected ? 'primary.main' : 'background.paper',
+                      color: selected ? 'primary.contrastText' : 'text.primary',
+                      textAlign: 'center',
+                      transition: 'all 0.15s',
+                      '&:hover': { borderColor: 'primary.main' },
+                    }}
+                  >
+                    <Box sx={{ fontSize: 26, display: 'flex', justifyContent: 'center', color: selected ? 'inherit' : 'primary.main' }}>
+                      {opt.icon}
+                    </Box>
+                    <Typography variant="body2" fontWeight={700} color="inherit" sx={{ mt: 0.5 }}>
+                      {opt.label}
+                    </Typography>
+                  </Box>
+                </Grid>
+              );
+            })}
+          </Grid>
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            Leave all selected to accept every payment type.
+          </Typography>
         </CardContent>
       </Card>
 
