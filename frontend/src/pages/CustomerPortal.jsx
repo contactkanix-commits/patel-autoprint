@@ -945,13 +945,38 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                 />
               </Grid>
               <Grid item xs={12} sm={7}>
-                <OptionGroup
-                  label="Paper Size"
-                  cols={2}
-                  value={s.paperSize || 'A4'}
-                  onChange={(v) => updateSetting(activeTab, 'paperSize', v)}
-                  options={paperSizes.map((ps) => ({ value: ps, label: ps }))}
-                />
+                <Grid container spacing={2} sx={{ mb: 0.25 }}>
+                  <Grid item xs={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Paper Size</InputLabel>
+                      <Select
+                        label="Paper Size"
+                        value={s.paperSize || 'A4'}
+                        onChange={(e) => updateSetting(activeTab, 'paperSize', e.target.value)}
+                      >
+                        {paperSizes.map((ps) => (
+                          <MenuItem key={ps} value={ps}>{ps}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Orientation</InputLabel>
+                      <Select
+                        label="Orientation"
+                        value={s.orientation || 'auto'}
+                        onChange={(e) => updateSetting(activeTab, 'orientation', e.target.value)}
+                      >
+                        {orientations.map((o) => (
+                          <MenuItem key={o} value={o}>
+                            {o === 'auto' ? 'Auto' : o.charAt(0).toUpperCase() + o.slice(1)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
                 <OptionGroup
                   label="Color"
                   cols={2}
@@ -972,20 +997,10 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                     { value: 'duplex', label: 'Double-sided' },
                   ]}
                 />
-                <OptionGroup
-                  label="Orientation"
-                  cols={3}
-                  value={s.orientation || 'auto'}
-                  onChange={(v) => updateSetting(activeTab, 'orientation', v)}
-                  options={orientations.map((o) => ({
-                    value: o,
-                    label: o === 'auto' ? 'Auto' : o.charAt(0).toUpperCase() + o.slice(1),
-                  }))}
-                />
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                   <CopiesStepper value={s.copies ?? 1} onChange={(v) => updateSetting(activeTab, 'copies', v)} />
                   <OptionGroup
-                    label="Pages / Sheet"
+                    label="Pages per sheet"
                     cols={3}
                     value={s.pagesPerSheet || 1}
                     onChange={(v) => (allImages
@@ -1009,7 +1024,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
             <Divider sx={{ my: 1.5 }} />
 
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="caption" fontWeight={600}>Print Sections (advanced)</Typography>
+              <Typography variant="caption" fontWeight={600}>Advanced print options</Typography>
               <Button size="small" startIcon={<Add />} onClick={() => addSection(activeTab)} sx={{ textTransform: 'none' }}>
                 Add
               </Button>
