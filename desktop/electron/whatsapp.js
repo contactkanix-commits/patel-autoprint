@@ -149,7 +149,7 @@ class WhatsAppClient extends EventEmitter {
       auth: state,
       browser: ['Patel AutoPrint', 'Chrome', '1.0'],
       syncFullHistory: false,
-      markOnlineOnConnect: false,
+      markOnlineOnConnect: true,
       defaultQueryTimeoutMs: undefined,
     });
 
@@ -201,13 +201,19 @@ class WhatsAppClient extends EventEmitter {
     });
 
     socket.ev.on('messages.upsert', async ({ messages, type }) => {
-      if (type !== 'notify') return;
+      this.log('debug', `messages.upsert event: type=${type}, count=${messages.length}`);
       for (const msg of messages) {
         try {
-          await this.handleMessage(msg);
+          await this.handleMessage(msg, type);
         } catch (err) {
           this.log('error', `Message handling error: ${err.message}`);
         }
+      }
+    });
+
+    socket.ev.on('message-receipt.update', (updates) => {
+      if (updates && updates.length) {
+        this.log('debug', `message-receipt.update: ${updates.length} receipt(s)`);
       }
     });
 
@@ -233,7 +239,7 @@ class WhatsAppClient extends EventEmitter {
     this.retryDelay = Math.min(this.retryDelay * 2, 30000);
   }
 
-  async handleMessage(msg) {
+  async handleMessage(msg, upsertType = 'notify') {
     if (msg.key?.fromMe) return;
     const remoteJid = msg.key?.remoteJid || '';
     if (!remoteJid.endsWith('@s.whatsapp.net')) return;
@@ -251,6 +257,18 @@ class WhatsAppClient extends EventEmitter {
     const customerName = msg.pushName || null;
     const content = getContentType(msg.message);
     if (!content) return;
+
+    // 'append' messages arrive from offline queueing or history sync. Only
+    // process ones that are recent so an old history replay never triggers a
+    // reply to a customer who messaged days ago.
+    if (upsertType === 'append') {
+      const ts = Number(msg.messageTimestamp || 0);
+      const ageMin = (Date.now() / 1000 - ts) / 60;
+      if (ageMin > 15) {
+        this.log('debug', `Skipping stale append message (+${customerPhone}, ${ageMin.toFixed(0)}m old)`);
+        return;
+      }
+    }
 
     this.log('info', `Message from +${customerPhone} (${content})`);
 
