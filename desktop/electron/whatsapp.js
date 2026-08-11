@@ -49,6 +49,7 @@ class WhatsAppClient extends EventEmitter {
     this.credentials = null;
     this.tmpDir = null;
     this.sessionDir = null;
+    this.pendingDone = new Map();
   }
 
   get userDataDir() {
@@ -81,6 +82,12 @@ class WhatsAppClient extends EventEmitter {
     if (this.logEntries.length > MAX_LOG) {
       this.logEntries.splice(0, this.logEntries.length - MAX_LOG);
     }
+    try {
+      fs.appendFileSync(
+        path.join(this.userDataDir, 'whatsapp-bot.log'),
+        `${new Date().toISOString()} [${level.toUpperCase()}] ${msg}\n`
+      );
+    } catch {}
     this.broadcast();
   }
 
@@ -245,8 +252,18 @@ class WhatsAppClient extends EventEmitter {
     const content = getContentType(msg.message);
     if (!content) return;
 
+    this.log('info', `Message from +${customerPhone} (${content})`);
+
     if (content !== 'imageMessage' && content !== 'documentMessage') {
-      if (msg.message?.conversation || msg.message?.extendedTextMessage?.text) {
+      const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim();
+      const pendingLink = this.pendingDone.get(customerPhone);
+      if (pendingLink && /^(done|finish|finished|ready|ok|link)$/i.test(text)) {
+        this.pendingDone.delete(customerPhone);
+        await this.reply(
+          customerPhone,
+          `Great! Tap this link to set your print options:\n${pendingLink}`
+        );
+      } else if (text) {
         await this.reply(
           customerPhone,
           `👋 Welcome to ${this.shopName || 'our shop'}!\nSend me your files (PDF, Word, PPT, Excel, JPG, PNG) and I will send you a link to set your print options.`
@@ -322,20 +339,12 @@ class WhatsAppClient extends EventEmitter {
 
     const link = data.link;
     const count = data.fileCount;
-    if (count === 1) {
-      await this.reply(
-        customerPhone,
-        `✅ Received "${originalName}".\n` +
-          `Send more files if you have any.\n` +
-          `When you're done, tap this link to set your print options:\n${link}`
-      );
-    } else {
-      await this.reply(
-        customerPhone,
-        `✅ Received "${originalName}" (${count} files so far).\n` +
-          `Tap this link when you're done to set your print options:\n${link}`
-      );
-    }
+    this.pendingDone.set(customerPhone, link);
+    await this.reply(
+      customerPhone,
+      `✅ Received "${originalName}" (${count} file${count === 1 ? '' : 's'} so far).\n` +
+        `Send more files, or reply "DONE" to get your print link.`
+    );
   }
 
   async uploadFiles(customerPhone, customerName, files) {
