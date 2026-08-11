@@ -241,13 +241,14 @@ class WhatsAppClient extends EventEmitter {
   }
 
   async handleMessage(msg, upsertType = 'notify') {
-    if (msg.key?.fromMe) return;
+    this.log('debug', `handleMessage: fromMe=${msg.key?.fromMe}, remoteJid=${msg.key?.remoteJid}, id=${msg.key?.id}`);
+    if (msg.key?.fromMe) { this.log('debug', 'skip: fromMe'); return; }
     const remoteJid = msg.key?.remoteJid || '';
-    if (!remoteJid.endsWith('@s.whatsapp.net')) return;
+    if (!remoteJid.endsWith('@s.whatsapp.net')) { this.log('debug', 'skip: not s.whatsapp.net'); return; }
     const msgId = msg.key.id || '';
 
     const dedupeKey = `${remoteJid}:${msgId}`;
-    if (this.recentIds.has(dedupeKey)) return;
+    if (this.recentIds.has(dedupeKey)) { this.log('debug', 'skip: dedupe'); return; }
     this.recentIds.add(dedupeKey);
     if (this.recentIds.size > 2000) {
       const first = this.recentIds.values().next().value;
@@ -261,7 +262,7 @@ class WhatsAppClient extends EventEmitter {
     const unwrapped = extractMessageContent(msg.message);
     const content = getContentType(unwrapped);
     this.log('debug', `Unwrapped content type: ${content} (raw keys: ${Object.keys(msg.message || {}).join(', ')})`);
-    if (!content) return;
+    if (!content) { this.log('debug', 'skip: no content'); return; }
 
     // 'append' messages arrive from offline queueing or history sync. Only
     // process ones that are recent so an old history replay never triggers a
