@@ -356,7 +356,7 @@ class WhatsAppClient extends EventEmitter {
       ]);
     } catch (err) {
       this.log('error', `Upload failed: ${err.message}`);
-      await this.reply(customerPhone, 'Something went wrong saving that file. Please try again.');
+      await this.reply(customerId, 'Something went wrong saving that file. Please try again.');
       return;
     } finally {
       try {
@@ -366,9 +366,9 @@ class WhatsAppClient extends EventEmitter {
 
     const link = data.link;
     const count = data.fileCount;
-    this.pendingDone.set(customerPhone, link);
+    this.pendingDone.set(customerId, link);
     await this.reply(
-      customerPhone,
+      customerId,
       `✅ Received "${originalName}" (${count} file${count === 1 ? '' : 's'} so far).\n` +
         `Send more files, or reply "DONE" to get your print link.`
     );
