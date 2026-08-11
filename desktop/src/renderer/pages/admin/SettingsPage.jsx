@@ -15,6 +15,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -23,6 +26,8 @@ import {
   CreditCard,
   QrCode2,
   Payments,
+  Print as PrintIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -47,6 +52,8 @@ export default function SettingsPage() {
   const [defaultColorPrinter, setDefaultColorPrinter] = useState('');
   const [acceptedMethods, setAcceptedMethods] = useState([]);
   const [printers, setPrinters] = useState([]);
+  const [printMode, setPrintMode] = useState('admin_approval');
+  const [autoPrintPrinterId, setAutoPrintPrinterId] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
@@ -66,6 +73,8 @@ export default function SettingsPage() {
         setDefaultBwPrinter(result.data.defaultBwPrinter || '');
         setDefaultColorPrinter(result.data.defaultColorPrinter || '');
         setAcceptedMethods(result.data.acceptedPaymentMethods || ['cash', 'card', 'upi', 'online']);
+        setPrintMode(result.data.printMode || 'admin_approval');
+        setAutoPrintPrinterId(result.data.autoPrintPrinterId || '');
       }
     } catch {
       // Use defaults
@@ -88,7 +97,14 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.put('/settings/pricing', { ...pricing, upiQrUrl, defaultBwPrinter, defaultColorPrinter });
+      await api.put('/settings/pricing', { 
+        ...pricing, 
+        upiQrUrl, 
+        defaultBwPrinter, 
+        defaultColorPrinter,
+        printMode,
+        autoPrintPrinterId,
+      });
       await api.put('/settings/payment-methods', { acceptedPaymentMethods: acceptedMethods });
       toast.success('Settings saved');
     } catch {
@@ -233,6 +249,69 @@ export default function SettingsPage() {
               </FormControl>
             </Grid>
           </Grid>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ maxWidth: 600, mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <PrintIcon sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" gutterBottom>Print Mode</Typography>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Choose how WhatsApp orders are processed. Admin approval requires manual confirmation; Auto-print sends orders directly to a printer.
+          </Typography>
+
+          <RadioGroup value={printMode} onChange={(e) => setPrintMode(e.target.value)} row>
+            <FormControlLabel
+              value="admin_approval"
+              control={<Radio />}
+              label={
+                <Box>
+                  <Typography variant="body1" fontWeight={600}>Admin Approval (Recommended)</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Orders from WhatsApp wait for admin to review and approve before printing.
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="auto_print"
+              control={<Radio />}
+              label={
+                <Box>
+                  <Typography variant="body1" fontWeight={600}>Auto Print</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Orders from WhatsApp are automatically approved and sent to the selected printer.
+                  </Typography>
+                </Box>
+              }
+            />
+          </RadioGroup>
+
+          {printMode === 'auto_print' && (
+            <Box sx={{ mt: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.neutral' }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Auto-Print Printer</InputLabel>
+                <Select
+                  value={autoPrintPrinterId}
+                  label="Auto-Print Printer"
+                  onChange={(e) => setAutoPrintPrinterId(e.target.value)}
+                >
+                  <MenuItem value=""><em>None (auto-select first online)</em></MenuItem>
+                  {printers.filter((p) => p.status === 'ONLINE').map((p) => (
+                    <MenuItem key={p.id} value={p.id}>
+                      {p.name} {p.colorSupport ? '(Color)' : '(B/W)'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                Select the printer that will automatically process WhatsApp orders. If not selected, the first online printer will be used.
+              </Typography>
+            </Box>
+          )}
         </CardContent>
       </Card>
 

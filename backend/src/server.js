@@ -1033,7 +1033,6 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
 // The desktop app pairs to the shop's own WhatsApp number (Baileys
 // multi-device). It uploads files customers send to that number to
 // /api/agent/whatsapp/inbox and auto-replies with the link returned here.
-
 // Claim a WhatsApp job from the portal (?wa=<token>): creates the order
 // and reuses the same analyze pipeline as a normal portal upload.
 app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
@@ -1052,6 +1051,11 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
     throw new AppError('No files found in this WhatsApp job', 400, 'WA_NO_FILES');
   }
 
+  const shop = await prisma.shop.findUnique({ where: { id: session.shopId } });
+  const shopSettings = shop?.settings || {};
+  const printMode = shopSettings.printMode || 'admin_approval';
+  const autoPrintPrinterId = shopSettings.autoPrintPrinterId || null;
+
   const shopId = session.shopId;
   let customer = await prisma.customer.findFirst({
     where: { shopId, phone: session.customerPhone },
@@ -1067,16 +1071,21 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
   }
 
   const token = await getNextToken(shopId);
+  const initialStatus = printMode === 'auto_print' ? 'APPROVED' : 'PENDING';
+  const initialApprovedAt = printMode === 'auto_print' ? new Date() : null;
   const order = await prisma.order.create({
     data: {
       shopId,
       token,
       customerId: customer.id,
       notes: 'Received via WhatsApp',
+      status: initialStatus,
+      approvedAt: initialApprovedAt,
     },
   });
 
   let created = 0;
+
   for (const file of sessionFiles) {
     if (!fs.existsSync(file.storagePath)) continue;
     const fileType = getFileType(file.originalName);
@@ -1118,6 +1127,28 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
     where: { id: session.id },
     data: { status: 'CLAIMED', claimedAt: new Date() },
   });
+
+  // If auto-print mode, create print jobs and dispatch
+  if (printMode === 'auto_print') {
+    const printers = await prisma.printer.findMany({ where: { shopId } });
+    let targetPrinterId = autoPrintPrinterId;
+    // Fallback to first online printer if configured printer not found
+    if (!targetPrinterId || !printers.some(p => p.id === targetPrinterId)) {
+      targetPrinterId = printers.find(p => p.status === 'ONLINE')?.id || printers[0]?.id;
+    }
+    if (targetPrinterId) {
+      const orderFiles = await prisma.orderFile.findMany({ where: { orderId: order.id } });
+      for (const ofile of orderFiles) {
+        // Pass as both bw and color override so all jobs go to the same printer
+        await createPrintJobsForFile(ofile, order.id, shopId, printers, targetPrinterId, targetPrinterId);
+      }
+      // Dispatch print jobs
+      const { processAndDispatchOrder } = require('./services/printProcessor');
+      await processAndDispatchOrder(order.id, prisma);
+    } else {
+      console.warn(`Auto-print enabled but no printer available for shop ${shopId}`);
+    }
+  }
 
   const orderWithFiles = await prisma.order.findUnique({
     where: { id: order.id },
@@ -1408,13 +1439,15 @@ app.get('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
       defaultBwPrinter: settings.defaultBwPrinter || '',
       defaultColorPrinter: settings.defaultColorPrinter || '',
       acceptedPaymentMethods: settings.acceptedPaymentMethods || ALL_PAYMENT_METHODS,
+      printMode: settings.printMode || 'admin_approval',
+      autoPrintPrinterId: settings.autoPrintPrinterId || '',
     },
   });
 }));
 
 app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => {
   const shopId = req.user.shopId;
-  const { bwPerPage, colorPerPage, colorDuplexPerPage, upiQrUrl, defaultBwPrinter, defaultColorPrinter } = req.body;
+  const { bwPerPage, colorPerPage, colorDuplexPerPage, upiQrUrl, defaultBwPrinter, defaultColorPrinter, printMode, autoPrintPrinterId } = req.body;
 
   const existing = await prisma.pricingRule.findFirst({ where: { shopId } });
   if (existing) {
@@ -1428,13 +1461,21 @@ app.put('/api/settings/pricing', authenticate, asyncHandler(async (req, res) => 
     });
   }
 
-  if (upiQrUrl !== undefined || defaultBwPrinter !== undefined || defaultColorPrinter !== undefined) {
-    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-    await prisma.shop.update({
-      where: { id: shopId },
-      data: { settings: { ...(shop?.settings || {}), upiQrUrl, defaultBwPrinter, defaultColorPrinter } },
-    });
-  }
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  const currentSettings = shop?.settings || {};
+  await prisma.shop.update({
+    where: { id: shopId },
+    data: { 
+      settings: { 
+        ...currentSettings, 
+        upiQrUrl, 
+        defaultBwPrinter, 
+        defaultColorPrinter,
+        printMode: printMode || currentSettings.printMode || 'admin_approval',
+        autoPrintPrinterId: autoPrintPrinterId || currentSettings.autoPrintPrinterId || '',
+      } 
+    },
+  });
 
   res.json({ success: true, data: { message: 'Settings saved' } });
 }));
