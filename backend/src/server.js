@@ -993,31 +993,54 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
   if (order.status !== 'PENDING') throw new AppError('Order already processed', 400, 'ORDER_NOT_PENDING');
 
-  // Respect the shop's accepted payment methods (empty/missing = accept all)
   const shop = await prisma.shop.findUnique({ where: { id: order.shopId } });
-  const accepted = (shop?.settings || {}).acceptedPaymentMethods || ALL_PAYMENT_METHODS;
+  const shopSettings = shop?.settings || {};
+  
+  // Respect the shop's accepted payment methods (empty/missing = accept all)
+  const accepted = shopSettings.acceptedPaymentMethods || ALL_PAYMENT_METHODS;
   const method = paymentMethod || 'cash';
   if (!accepted.includes(method)) {
     throw new AppError('This shop does not accept this payment method', 400, 'PAYMENT_METHOD_NOT_ACCEPTED');
   }
 
   const printers = await prisma.printer.findMany({ where: { shopId: order.shopId } });
-  const printJobs = [];
+
+  // Check auto-print mode
+  const printMode = shopSettings.printMode || 'admin_approval';
+  const autoPrintPrinterId = shopSettings.autoPrintPrinterId || null;
+
+  // Create print jobs
+  let targetPrinterId = null;
+  if (printMode === 'auto_print') {
+    targetPrinterId = autoPrintPrinterId;
+    // Fallback to first online printer
+    if (!targetPrinterId || !printers.some(p => p.id === targetPrinterId)) {
+      targetPrinterId = printers.find(p => p.status === 'ONLINE')?.id || printers[0]?.id;
+    }
+  }
 
   for (const file of order.files) {
-    const created = await createPrintJobsForFile(file, order.id, order.shopId, printers);
-    printJobs.push(...created);
+    const created = await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterId, targetPrinterId);
   }
+
+  const initialStatus = printMode === 'auto_print' ? 'APPROVED' : 'PENDING';
+  const initialApprovedAt = printMode === 'auto_print' ? new Date() : null;
 
   await prisma.order.update({
     where: { id },
     data: {
-      status: 'APPROVED',
-      paymentStatus: 'PAID',
+      status: initialStatus,
+      paymentStatus: printMode === 'auto_print' ? 'PAID' : 'UNPAID',
       paymentMethod: method,
-      approvedAt: new Date(),
+      approvedAt: initialApprovedAt,
     },
   });
+
+  // If auto-print, dispatch to printer
+  if (printMode === 'auto_print' && targetPrinterId) {
+    const { processAndDispatchOrder } = require('./services/printProcessor');
+    await processAndDispatchOrder(order.id, prisma);
+  }
 
   const updatedOrder = await prisma.order.findUnique({
     where: { id },
@@ -1952,8 +1975,18 @@ app.post('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(
     slug = `${baseSlug}-${n++}`;
   }
 
+  // Default shop settings
+  const defaultSettings = {
+    acceptedPaymentMethods: ['cash'],
+    printMode: 'admin_approval',
+    autoPrintPrinterId: '',
+    defaultBwPrinter: '',
+    defaultColorPrinter: '',
+    upiQrUrl: '',
+  };
+
   const shop = await prisma.shop.create({
-    data: { name, slug, agentKey: generateAgentKey() },
+    data: { name, slug, agentKey: generateAgentKey(), settings: defaultSettings },
   });
 
   const passwordHash = await bcrypt.hash(adminPassword, 10);
@@ -1978,17 +2011,19 @@ app.post('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(
     },
   });
 
-  res.json({
+res.json({
     success: true,
     data: {
       id: shop.id,
       name: shop.name,
       slug: shop.slug,
       agentKey: shop.agentKey,
+      customerPortalUrl: `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/s/${shop.slug}`,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       subscription,
     },
   });
+});
 }));
 
 // Update a shop (name + subscription)
