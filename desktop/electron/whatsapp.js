@@ -176,6 +176,12 @@ class WhatsAppClient extends EventEmitter {
 
         if (statusCode === DisconnectReason.loggedOut) {
           this.log('warn', 'Logged out from WhatsApp');
+          // The saved session is no longer valid (device unlinked or session
+          // rejected). Clear it so the next link attempt shows a fresh QR
+          // instead of restoring a dead session forever.
+          try {
+            fs.rmSync(this.getSessionDir(), { recursive: true, force: true });
+          } catch {}
           this.setState('idle', { error: 'Logged out. Link the shop number again to resume.' });
         } else if (statusCode === DisconnectReason.restartRequired) {
           this.log('info', 'Restarting WhatsApp connection...');

@@ -101,15 +101,26 @@ export default function WhatsAppPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           {(state === 'idle' || state === 'closed') && (
-            <Button
-              variant="contained"
-              color="success"
-              startIcon={busy ? <CircularProgress size={18} /> : <LinkIcon />}
-              onClick={handleStart}
-              disabled={busy}
-            >
-              Link / Start
-            </Button>
+            <>
+              <Button
+                variant="contained"
+                color="success"
+                startIcon={busy ? <CircularProgress size={18} /> : <LinkIcon />}
+                onClick={handleStart}
+                disabled={busy}
+              >
+                Link / Start
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<UnlinkIcon />}
+                onClick={handleUnlink}
+                disabled={busy}
+              >
+                Unlink
+              </Button>
+            </>
           )}
           {state === 'connected' && (
             <Button
