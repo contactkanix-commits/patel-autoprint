@@ -8,6 +8,22 @@ const { listSystemPrinters } = require('./printers');
 
 const isDev = !app.isPackaged;
 
+// Only one instance may run at a time. Without this, closing the window hides
+// to tray and launching the app again spawns another process. Multiple live
+// processes break the auto-updater, because NSIS refuses to install while any
+// Patel AutoPrint Admin process is still running ("cannot be closed").
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
@@ -232,7 +248,13 @@ function registerIpc() {
   ipcMain.handle('app:get-update-status', () => lastUpdateStatus);
 
   ipcMain.handle('app:install-update', () => {
-    if (!isDev) autoUpdater.quitAndInstall();
+    if (isDev) return;
+    isQuitting = true;
+    // Spawn the detached installer first, then hard-exit so no Patel AutoPrint
+    // Admin process is left running — otherwise the NSIS installer shows
+    // "cannot be closed, please close it manually and click retry".
+    autoUpdater.quitAndInstall(true, true);
+    setTimeout(() => app.exit(0), 250);
   });
 }
 
