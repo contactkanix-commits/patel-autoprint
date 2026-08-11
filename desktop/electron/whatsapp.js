@@ -266,10 +266,16 @@ class WhatsAppClient extends EventEmitter {
 
     let buffer;
     try {
-      buffer = await downloadMediaMessage(msg, {
-        logger: pino({ level: 'silent' }),
-        reuploadRequest: this.socket ? this.socket.updateMediaMessage.bind(this.socket) : undefined,
-      });
+      // baileys 6.x signature: downloadMediaMessage(message, 'buffer', options, ctx)
+      buffer = await downloadMediaMessage(
+        msg,
+        'buffer',
+        {},
+        {
+          logger: pino({ level: 'silent' }),
+          reuploadRequest: this.socket ? this.socket.updateMediaMessage.bind(this.socket) : undefined,
+        }
+      );
     } catch (err) {
       this.log('error', `Media download failed: ${err.message}`);
       await this.reply(customerPhone, 'Something went wrong receiving that file. Please try again.');
@@ -283,7 +289,13 @@ class WhatsAppClient extends EventEmitter {
     const tmpDir = this.getTmpDir();
     const tmpName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${originalName.replace(/[^\w.\-]/g, '_')}`;
     const tmpPath = path.join(tmpDir, tmpName);
-    fs.writeFileSync(tmpPath, buffer);
+    try {
+      fs.writeFileSync(tmpPath, buffer);
+    } catch (err) {
+      this.log('error', `Failed to write media to disk: ${err.message}`);
+      await this.reply(customerPhone, 'Something went wrong saving that file. Please try again.');
+      return;
+    }
 
     this.log('info', `Received "${originalName}" from +${customerPhone}`);
 
