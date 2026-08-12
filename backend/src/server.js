@@ -354,6 +354,67 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true,
 }));
+
+// Razorpay Webhook (per shop) - MUST be before express.json() for raw body
+app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
+  const { shopId } = req.params;
+  const signature = req.headers['x-razorpay-signature'];
+  
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) return res.status(404).send('Shop not found');
+  
+  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
+  if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
+    return res.status(400).send('Webhook not configured');
+  }
+  
+  const webhookSecret = decrypt(razorpayConfig.webhookSecret);
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(req.body)
+    .digest('hex');
+  
+  if (signature !== expectedSignature) {
+    console.error('[Razorpay Webhook] Invalid signature for shop', shopId);
+    return res.status(400).send('Invalid signature');
+  }
+  
+  let event;
+  try {
+    event = JSON.parse(req.body);
+  } catch (e) {
+    return res.status(400).send('Invalid JSON');
+  }
+  
+  console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
+  
+  if (event.event === 'payment.captured') {
+    const payment = event.payload.payment.entity;
+    const orderId = payment.notes?.orderId;
+    const razorpayOrderId = payment.order_id;
+    
+    if (orderId) {
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (order && order.status === 'PENDING' && order.paymentStatus === 'UNPAID') {
+        await completeOrderWithPayment(orderId, payment.id, razorpayOrderId);
+        console.log('[Razorpay Webhook] Order completed:', orderId);
+      }
+    }
+  } else if (event.event === 'payment.failed') {
+    const payment = event.payload.payment.entity;
+    const orderId = payment.notes?.orderId;
+    if (orderId) {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
+      });
+      console.log('[Razorpay Webhook] Payment failed for order:', orderId);
+    }
+  }
+  
+  res.json({ status: 'ok' });
+}));
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
@@ -1752,66 +1813,6 @@ app.post('/api/settings/upi-qr', authenticate, qrUpload.single('qr'), asyncHandl
     data: { settings: { ...(shop?.settings || {}), upiQrUrl: url } },
   });
   res.json({ success: true, data: { url } });
-}));
-
-// Razorpay Webhook (per shop)
-app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
-  const { shopId } = req.params;
-  const signature = req.headers['x-razorpay-signature'];
-  
-  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-  if (!shop) return res.status(404).send('Shop not found');
-  
-  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
-  if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
-    return res.status(400).send('Webhook not configured');
-  }
-  
-  const webhookSecret = decrypt(razorpayConfig.webhookSecret);
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
-    .update(req.body)
-    .digest('hex');
-  
-  if (signature !== expectedSignature) {
-    console.error('[Razorpay Webhook] Invalid signature for shop', shopId);
-    return res.status(400).send('Invalid signature');
-  }
-  
-  let event;
-  try {
-    event = JSON.parse(req.body);
-  } catch (e) {
-    return res.status(400).send('Invalid JSON');
-  }
-  
-  console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
-  
-  if (event.event === 'payment.captured') {
-    const payment = event.payload.payment.entity;
-    const orderId = payment.notes?.orderId;
-    const razorpayOrderId = payment.order_id;
-    
-    if (orderId) {
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
-      if (order && order.status === 'PENDING' && order.paymentStatus === 'UNPAID') {
-        await completeOrderWithPayment(orderId, payment.id, razorpayOrderId);
-        console.log('[Razorpay Webhook] Order completed:', orderId);
-      }
-    }
-  } else if (event.event === 'payment.failed') {
-    const payment = event.payload.payment.entity;
-    const orderId = payment.notes?.orderId;
-    if (orderId) {
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
-      });
-      console.log('[Razorpay Webhook] Payment failed for order:', orderId);
-    }
-  }
-  
-  res.json({ status: 'ok' });
 }));
 
 // ============================================
