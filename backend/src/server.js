@@ -386,6 +386,9 @@ app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 // Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
 app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
   try {
+    // TEST: Throw error to verify try-catch works
+    throw new Error('TEST ERROR');
+    
     const { shopId } = req.params;
     const signature = req.headers['x-razorpay-signature'];
     console.log('[Webhook] Received for shop:', shopId, 'hasSignature:', !!signature, 'rawBodyLength:', req.rawBody?.length || 0, 'rawBodyPreview:', req.rawBody?.substring(0, 100) || 'empty');
