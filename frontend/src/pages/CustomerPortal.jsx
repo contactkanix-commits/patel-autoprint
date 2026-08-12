@@ -24,6 +24,7 @@ import {
   ButtonBase,
   Zoom,
   keyframes,
+  Snackbar,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -50,6 +51,8 @@ import {
   CreditCard,
   QrCode2,
   Image as ImageIcon,
+  HourglassEmpty,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -1376,6 +1379,12 @@ export default function CustomerPortal() {
   const [shopError, setShopError] = useState('');
   const [waSource, setWaSource] = useState(false);
   const [waError, setWaError] = useState('');
+  
+  // Razorpay payment state
+  const [razorpayConfig, setRazorpayConfig] = useState(null);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  
   const waToken = searchParams.get('wa');
   const waClaimedRef = useRef(false);
 
@@ -1493,8 +1502,99 @@ export default function CustomerPortal() {
     } catch {}
   };
 
+  const fetchRazorpayConfig = async () => {
+    try {
+      const result = await api.get(`/guest/shop/${shopSlug}/payment-config`);
+      if (result.success && result.data.razorpay) {
+        setRazorpayConfig(result.data.razorpay);
+      }
+    } catch {}
+  };
+
+  const loadRazorpayScript = () => {
+    return new Promise((resolve, reject) => {
+      if (window.Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => reject(new Error('Failed to load Razorpay script'));
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleRazorpayPayment = async (orderId, amount, keyId, shopName, orderToken) => {
+    setProcessingPayment(true);
+    setPaymentError('');
+    try {
+      // 1. Load Razorpay script
+      await loadRazorpayScript();
+      
+      // 2. Create Razorpay order via backend
+      const result = await api.post(`/guest/orders/${orderId}/payment/initiate`, { method: 'razorpay' });
+      if (!result.success) throw new Error(result.message || 'Failed to initiate payment');
+      
+      const { orderId: rpOrderId, amount: rpAmount, keyId: rpKeyId, shopName: rpShopName, orderToken: rpOrderToken } = result.data;
+      
+      // 3. Open Razorpay Checkout with UPI Intent (shows GPay, PhonePe, PayTM icons)
+      const options = {
+        key: rpKeyId,
+        amount: rpAmount,
+        currency: 'INR',
+        name: rpShopName,
+        description: `Order #${rpOrderToken}`,
+        order_id: rpOrderId,
+        upi: { flow: 'intent' },  // Shows GPay, PhonePe, PayTM app icons
+        method: { upi: true },    // Pre-select UPI
+        handler: async (response) => {
+          // Payment successful - verify on backend
+          await verifyRazorpayPayment(orderId, response.razorpay_payment_id);
+        },
+        modal: {
+          ondismiss: () => {
+            setProcessingPayment(false);
+            setPaymentError('Payment cancelled. Please try again or choose another method.');
+          },
+        },
+        theme: { color: '#1976d2' },
+      };
+      
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', (response) => {
+        setProcessingPayment(false);
+        setPaymentError(response.error.description || 'Payment failed. Please try again.');
+      });
+      rzp.open();
+      
+    } catch (err) {
+      setProcessingPayment(false);
+      setPaymentError(err.message || 'Payment initiation failed');
+      toast.error(err.message || 'Payment initiation failed');
+    }
+  };
+
+  const verifyRazorpayPayment = async (orderId, paymentId) => {
+    try {
+      const result = await api.post(`/guest/orders/${orderId}/payment/verify`, { paymentId, method: 'razorpay' });
+      if (result.success) {
+        setUploadedOrder(result.data);
+        toast.success('Payment verified! Order confirmed.');
+        setActiveStep(3);
+      } else {
+        throw new Error(result.message || 'Payment verification failed');
+      }
+    } catch (err) {
+      setPaymentError(err.message || 'Payment verification failed');
+      toast.error(err.message || 'Payment verification failed');
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
   useEffect(() => {
-    if (activeStep === 2) fetchUpiQr();
+    if (activeStep === 2) {
+      fetchUpiQr();
+      fetchRazorpayConfig();
+    }
   }, [activeStep]);
 
   useEffect(() => {
@@ -1512,6 +1612,17 @@ export default function CustomerPortal() {
 
   const handlePlaceOrder = async () => {
     if (!uploadedOrder || !paymentMethod) { toast.error('Select payment method'); return; }
+    
+    // For online payment (Razorpay UPI Intent), handle differently
+    if (paymentMethod === 'online') {
+      if (!razorpayConfig) {
+        toast.error('Online payment not configured for this shop');
+        return;
+      }
+      await handleRazorpayPayment(uploadedOrder.id);
+      return;
+    }
+    
     setLoading(true);
     try {
       const result = await api.post(`/guest/orders/${uploadedOrder.id}/confirm`, { paymentMethod });
@@ -1591,7 +1702,9 @@ export default function CustomerPortal() {
             {activeStep === 2 && (
               <Step3Review order={uploadedOrder} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
                 priceData={priceData} loadingPrice={loadingPrice} upiQrUrl={upiQrUrl}
-                acceptedMethods={shop?.settings?.acceptedPaymentMethods} />
+                acceptedMethods={shop?.settings?.acceptedPaymentMethods}
+                processingPayment={processingPayment}
+                paymentError={paymentError} />
             )}
             {activeStep === 3 && (
               <Step4Confirmation order={uploadedOrder} total={displayTotal} />

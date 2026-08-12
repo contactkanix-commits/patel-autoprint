@@ -18,6 +18,10 @@ import {
   Radio,
   RadioGroup,
   FormControlLabel,
+  InputAdornment,
+  IconButton,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -28,6 +32,13 @@ import {
   Payments,
   Print as PrintIcon,
   Settings as SettingsIcon,
+  Visibility,
+  VisibilityOff,
+  Wifi,
+  WifiOff,
+  CheckCircle,
+  Error,
+  Refresh,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -57,11 +68,24 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingQr, setUploadingQr] = useState(false);
+  
+  // Payment Gateway state
+  const [gateways, setGateways] = useState({});
+  const [gatewayLoading, setGatewayLoading] = useState(false);
+  const [gatewaySaving, setGatewaySaving] = useState(false);
+  const [testMode, setTestMode] = useState('test');
+  const [razorpayKeyId, setRazorpayKeyId] = useState('');
+  const [razorpayKeySecret, setRazorpayKeySecret] = useState('');
+  const [razorpayWebhookSecret, setRazorpayWebhookSecret] = useState('');
+  const [showKeySecret, setShowKeySecret] = useState(false);
+  const [showWebhookSecret, setShowWebhookSecret] = useState(false);
+  const [testingGateway, setTestingGateway] = useState(false);
   const qrInputRef = useRef(null);
 
   useEffect(() => {
     fetchSettings();
     fetchPrinters();
+    fetchGateways();
   }, []);
 
   const fetchSettings = async () => {
@@ -94,6 +118,23 @@ export default function SettingsPage() {
     }
   };
 
+  const fetchGateways = async () => {
+    setGatewayLoading(true);
+    try {
+      const result = await api.get('/settings/payment-gateways');
+      if (result.success && result.data) {
+        setGateways(result.data);
+        if (result.data.razorpay) {
+          setRazorpayKeyId(result.data.razorpay.keyId || '');
+        }
+      }
+    } catch {
+      // ignore
+    } finally {
+      setGatewayLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -111,6 +152,44 @@ export default function SettingsPage() {
       toast.error('Failed to save settings');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleGatewaySave = async () => {
+    setGatewaySaving(true);
+    try {
+      await api.put('/settings/payment-gateways/razorpay', {
+        enabled: true,
+        mode: testMode,
+        keyId: razorpayKeyId,
+        keySecret: razorpayKeySecret,
+        webhookSecret: razorpayWebhookSecret,
+      });
+      await fetchGateways();
+      toast.success('Razorpay configuration saved');
+    } catch (err) {
+      toast.error(err.message || 'Failed to save gateway config');
+    } finally {
+      setGatewaySaving(false);
+    }
+  };
+
+  const handleGatewayTest = async () => {
+    if (!razorpayKeyId || !razorpayKeySecret) {
+      toast.error('Please enter Key ID and Key Secret');
+      return;
+    }
+    setTestingGateway(true);
+    try {
+      await api.post('/settings/payment-gateways/razorpay/test', {
+        keyId: razorpayKeyId,
+        keySecret: razorpayKeySecret,
+      });
+      toast.success('Connection successful! Razorpay credentials are valid.');
+    } catch (err) {
+      toast.error(err.message || 'Invalid credentials');
+    } finally {
+      setTestingGateway(false);
     }
   };
 
@@ -362,6 +441,139 @@ export default function SettingsPage() {
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
             Leave all selected to accept every payment type.
           </Typography>
+        </CardContent>
+      </Card>
+
+      <Card sx={{ maxWidth: 600, mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <SettingsIcon sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" gutterBottom>Payment Gateways</Typography>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Configure Razorpay for online payments (UPI Intent - GPay, PhonePe, PayTM). 
+            Each shop has its own gateway credentials. Test mode uses Razorpay sandbox.
+          </Typography>
+
+          {gateways.razorpay ? (
+            <Box sx={{ mb: 3, p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
+                Razorpay {gateways.razorpay.enabled ? <Chip label={gateways.razorpay.mode === 'live' ? 'Live' : 'Test'} size="small" color={gateways.razorpay.mode === 'live' ? 'success' : 'warning'} sx={{ ml: 1 }} /> : <Chip label="Disabled" size="small" color="default" sx={{ ml: 1 }} />}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Key ID: {gateways.razorpay.keyId} &bull; Webhook: {gateways.razorpay.hasWebhookSecret ? 'Configured' : 'Not set'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                Webhook URL: <code>{gateways.razorpay.webhookUrl}</code>
+              </Typography>
+            </Box>
+          ) : (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Razorpay not configured. Add your credentials below to enable online payments.
+            </Alert>
+          )}
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Mode</Typography>
+            <RadioGroup value={testMode} onChange={(e) => setTestMode(e.target.value)} row>
+              <FormControlLabel value="test" control={<Radio />} label="Test Mode (Sandbox)" />
+              <FormControlLabel value="live" control={<Radio />} label="Live Mode" />
+            </RadioGroup>
+            <Typography variant="caption" color="text.secondary">
+              Use Test Mode for development. Switch to Live when ready to accept real payments.
+            </Typography>
+          </Box>
+
+          <Grid container spacing={2} sx={{ mb: 2 }}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Key ID"
+                type="text"
+                value={razorpayKeyId}
+                onChange={(e) => setRazorpayKeyId(e.target.value)}
+                placeholder="rzp_test_xxxxxxxxxxxx"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title="From Razorpay Dashboard → Settings → API Keys">
+                        <IconButton onClick={() => {}}>i</IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Key Secret"
+                type={showKeySecret ? 'text' : 'password'}
+                value={razorpayKeySecret}
+                onChange={(e) => setRazorpayKeySecret(e.target.value)}
+                placeholder="Enter key secret"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowKeySecret(!showKeySecret)}
+                        edge="end"
+                      >
+                        {showKeySecret ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                label="Webhook Secret"
+                type={showWebhookSecret ? 'text' : 'password'}
+                value={razorpayWebhookSecret}
+                onChange={(e) => setRazorpayWebhookSecret(e.target.value)}
+                placeholder="Enter webhook secret (from Razorpay Dashboard → Webhooks)"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowWebhookSecret(!showWebhookSecret)}
+                        edge="end"
+                      >
+                        {showWebhookSecret ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Grid>
+          </Grid>
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            Get credentials from <a href="https://dashboard.razorpay.com" target="_blank" rel="noopener">Razorpay Dashboard</a> → Settings → API Keys.
+            Webhook URL to configure in Razorpay: <code>{gateways.razorpay?.webhookUrl || 'https://patel-autoprint.onrender.com/api/webhooks/razorpay/SHOP_ID'}</code>
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              startIcon={gatewaySaving ? <CircularProgress size={20} /> : <SaveIcon />}
+              onClick={handleGatewaySave}
+              disabled={gatewaySaving || !razorpayKeyId || !razorpayKeySecret}
+            >
+              {gatewaySaving ? 'Saving...' : 'Save Razorpay Config'}
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={testingGateway ? <CircularProgress size={20} /> : <Refresh />}
+              onClick={handleGatewayTest}
+              disabled={testingGateway || !razorpayKeyId || !razorpayKeySecret}
+            >
+              {testingGateway ? 'Testing...' : 'Test Connection'}
+            </Button>
+          </Box>
         </CardContent>
       </Card>
 
