@@ -376,36 +376,42 @@ app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
 app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
-  const { shopId } = req.params;
-  const signature = req.headers['x-razorpay-signature'];
-  
-  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-  if (!shop) return res.status(404).send('Shop not found');
-  
-  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
-  if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
-    return res.status(400).send('Webhook not configured');
-  }
-  
-  const webhookSecret = decrypt(razorpayConfig.webhookSecret);
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
-    .update(req.rawBody || '')
-    .digest('hex');
-  
-  if (signature !== expectedSignature) {
-    console.error('[Razorpay Webhook] Invalid signature for shop', shopId);
-    return res.status(400).send('Invalid signature');
-  }
-  
-  let event;
   try {
-    event = JSON.parse(req.rawBody || '{}');
-  } catch (e) {
-    return res.status(400).send('Invalid JSON');
+    const { shopId } = req.params;
+    const signature = req.headers['x-razorpay-signature'];
+    console.log('[Webhook] Received for shop:', shopId, 'hasSignature:', !!signature, 'rawBodyLength:', req.rawBody?.length || 0);
+    
+    const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+    if (!shop) return res.status(404).send('Shop not found');
+    
+    const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
+    if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
+      return res.status(400).send('Webhook not configured');
+    }
+    
+    const webhookSecret = decrypt(razorpayConfig.webhookSecret);
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(req.rawBody || '')
+      .digest('hex');
+    
+    if (signature !== expectedSignature) {
+      console.error('[Razorpay Webhook] Invalid signature for shop', shopId, 'expected:', expectedSignature, 'got:', signature);
+      return res.status(400).send('Invalid signature');
+    }
+    
+    let event;
+    try {
+      event = JSON.parse(req.rawBody || '{}');
+    } catch (e) {
+      return res.status(400).send('Invalid JSON');
+    }
+    
+    console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
+  } catch (err) {
+    console.error('[Webhook] Error:', err.message, err.stack);
+    return res.status(500).send('Webhook error: ' + err.message);
   }
-  
-  console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
   
   if (event.event === 'payment.captured') {
     const payment = event.payload.payment.entity;
