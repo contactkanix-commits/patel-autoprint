@@ -379,17 +379,25 @@ app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
   try {
     const { shopId } = req.params;
     const signature = req.headers['x-razorpay-signature'];
-    console.log('[Webhook] Received for shop:', shopId, 'hasSignature:', !!signature, 'rawBodyLength:', req.rawBody?.length || 0);
+    console.log('[Webhook] Received for shop:', shopId, 'hasSignature:', !!signature, 'rawBodyLength:', req.rawBody?.length || 0, 'rawBodyPreview:', req.rawBody?.substring(0, 100) || 'empty');
     
     const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-    if (!shop) return res.status(404).send('Shop not found');
+    if (!shop) {
+      console.log('[Webhook] Shop not found:', shopId);
+      return res.status(404).send('Shop not found');
+    }
+    console.log('[Webhook] Shop found:', shop.name);
     
     const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
     if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
+      console.log('[Webhook] Webhook not configured for shop:', shopId);
       return res.status(400).send('Webhook not configured');
     }
+    console.log('[Webhook] Razorpay config found, hasWebhookSecret:', !!razorpayConfig.webhookSecret);
     
     const webhookSecret = decrypt(razorpayConfig.webhookSecret);
+    console.log('[Webhook] Decrypted webhook secret, length:', webhookSecret?.length || 0);
+    
     const expectedSignature = crypto
       .createHmac('sha256', webhookSecret)
       .update(req.rawBody || '')
@@ -404,40 +412,41 @@ app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
     try {
       event = JSON.parse(req.rawBody || '{}');
     } catch (e) {
+      console.log('[Webhook] JSON parse error:', e.message);
       return res.status(400).send('Invalid JSON');
     }
     
     console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
-  } catch (err) {
-    console.error('[Webhook] Error:', err.message, err.stack);
-    return res.status(500).send('Webhook error: ' + err.message);
-  }
-  
-  if (event.event === 'payment.captured') {
-    const payment = event.payload.payment.entity;
-    const orderId = payment.notes?.orderId;
-    const razorpayOrderId = payment.order_id;
     
-    if (orderId) {
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
-      if (order && order.status === 'PENDING' && order.paymentStatus === 'UNPAID') {
-        await completeOrderWithPayment(orderId, payment.id, razorpayOrderId);
-        console.log('[Razorpay Webhook] Order completed:', orderId);
+    if (event.event === 'payment.captured') {
+      const payment = event.payload.payment.entity;
+      const orderId = payment.notes?.orderId;
+      const razorpayOrderId = payment.order_id;
+      
+      if (orderId) {
+        const order = await prisma.order.findUnique({ where: { id: orderId } });
+        if (order && order.status === 'PENDING' && order.paymentStatus === 'UNPAID') {
+          await completeOrderWithPayment(orderId, payment.id, razorpayOrderId);
+          console.log('[Razorpay Webhook] Order completed:', orderId);
+        }
+      }
+    } else if (event.event === 'payment.failed') {
+      const payment = event.payload.payment.entity;
+      const orderId = payment.notes?.orderId;
+      if (orderId) {
+        await prisma.order.update({
+          where: { id: orderId },
+          data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
+        });
+        console.log('[Razorpay Webhook] Payment failed for order:', orderId);
       }
     }
-  } else if (event.event === 'payment.failed') {
-    const payment = event.payload.payment.entity;
-    const orderId = payment.notes?.orderId;
-    if (orderId) {
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
-      });
-      console.log('[Razorpay Webhook] Payment failed for order:', orderId);
-    }
+    
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('[Webhook] Error:', err.message, err.stack);
+    return res.status(500).json({ success: false, message: 'Webhook error: ' + err.message });
   }
-  
-  res.json({ status: 'ok' });
 }));
 
 // Static files
