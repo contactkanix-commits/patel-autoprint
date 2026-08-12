@@ -106,7 +106,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId) {
     const page = newDoc.addPage([dims.w, dims.h]);
     const cellW = dims.w / cols;
     const cellH = dims.h / rows;
-    const margin = 10;
+    const margin = 24; // Increased margin to prevent content cutoff
 
     for (let j = 0; j < chunk.length; j++) {
       const col = j % cols;

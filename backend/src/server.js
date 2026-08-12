@@ -1015,33 +1015,39 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
 
   // Create print jobs - need printer NAME not ID for pdf-to-printer
   let targetPrinterName = null;
+  let shouldAutoPrint = false;
+  
   if (printMode === 'auto_print') {
     const targetPrinter = autoPrintPrinterId
       ? printers.find(p => p.id === autoPrintPrinterId)
       : null;
     // Fallback to first online printer
     targetPrinterName = targetPrinter?.name || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
+    
+    // Only auto-print for cash payments; online payments wait for payment confirmation
+    shouldAutoPrint = targetPrinterName && method === 'cash';
   }
 
   for (const file of order.files) {
     const created = await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
   }
 
-  const initialStatus = printMode === 'auto_print' ? 'APPROVED' : 'PENDING';
-  const initialApprovedAt = printMode === 'auto_print' ? new Date() : null;
+  const initialStatus = shouldAutoPrint ? 'APPROVED' : 'PENDING';
+  const initialApprovedAt = shouldAutoPrint ? new Date() : null;
+  const initialPaymentStatus = shouldAutoPrint ? 'PAID' : 'UNPAID';
 
   await prisma.order.update({
     where: { id },
     data: {
       status: initialStatus,
-      paymentStatus: printMode === 'auto_print' ? 'PAID' : 'UNPAID',
+      paymentStatus: initialPaymentStatus,
       paymentMethod: method,
       approvedAt: initialApprovedAt,
     },
   });
 
-  // If auto-print, dispatch to printer
-  if (printMode === 'auto_print' && targetPrinterId) {
+  // If auto-print (cash only), dispatch to printer
+  if (shouldAutoPrint) {
     const { processAndDispatchOrder } = require('./services/printProcessor');
     await processAndDispatchOrder(order.id, prisma);
   }
@@ -1098,8 +1104,8 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
   }
 
   const token = await getNextToken(shopId);
-  const initialStatus = printMode === 'auto_print' ? 'APPROVED' : 'PENDING';
-  const initialApprovedAt = printMode === 'auto_print' ? new Date() : null;
+  // WhatsApp orders always PENDING - customer pays on portal
+  const initialStatus = 'PENDING';
   const order = await prisma.order.create({
     data: {
       shopId,
@@ -1107,7 +1113,6 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
       customerId: customer.id,
       notes: 'Received via WhatsApp',
       status: initialStatus,
-      approvedAt: initialApprovedAt,
     },
   });
 
@@ -1155,28 +1160,7 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
     data: { status: 'CLAIMED', claimedAt: new Date() },
   });
 
-  // If auto-print mode, create print jobs and dispatch
-  if (printMode === 'auto_print') {
-    const printers = await prisma.printer.findMany({ where: { shopId } });
-    let targetPrinterName = null;
-    const targetPrinter = autoPrintPrinterId
-      ? printers.find(p => p.id === autoPrintPrinterId)
-      : null;
-    // Fallback to first online printer if configured printer not found
-    targetPrinterName = targetPrinter?.name || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
-    if (targetPrinterName) {
-      const orderFiles = await prisma.orderFile.findMany({ where: { orderId: order.id } });
-      for (const ofile of orderFiles) {
-        // Pass as both bw and color override so all jobs go to the same printer
-        await createPrintJobsForFile(ofile, order.id, shopId, printers, targetPrinterName, targetPrinterName);
-      }
-      // Dispatch print jobs
-      const { processAndDispatchOrder } = require('./services/printProcessor');
-      await processAndDispatchOrder(order.id, prisma);
-    } else {
-      console.warn(`Auto-print enabled but no printer available for shop ${shopId}`);
-    }
-  }
+  // WhatsApp orders don't auto-print - customer pays on portal
 
   const orderWithFiles = await prisma.order.findUnique({
     where: { id: order.id },
