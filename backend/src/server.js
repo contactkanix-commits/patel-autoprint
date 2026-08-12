@@ -1893,7 +1893,11 @@ app.get('/api/superadmin/shops', authenticate, requireSuperAdmin, asyncHandler(a
       if (q && !s.name.toLowerCase().includes(q) && !(s.agentKey || '').toLowerCase().includes(q)) {
         return null;
       }
-      return { ...s, subStatus: sub };
+      return {
+        ...s,
+        subStatus: sub,
+        customerPortalUrl: (process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com') + '/s/' + s.slug,
+      };
     })
   );
 
