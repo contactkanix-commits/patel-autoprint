@@ -126,6 +126,7 @@ export default function SettingsPage() {
         setGateways(result.data);
         if (result.data.razorpay) {
           setRazorpayKeyId(result.data.razorpay.keyId || '');
+          // Don't populate secrets for security - but track if they exist
         }
       }
     } catch {
@@ -512,7 +513,7 @@ export default function SettingsPage() {
                 type={showKeySecret ? 'text' : 'password'}
                 value={razorpayKeySecret}
                 onChange={(e) => setRazorpayKeySecret(e.target.value)}
-                placeholder="Enter key secret"
+                placeholder={gateways.razorpay?.hasSecret ? '•••••••• (saved)' : 'Enter key secret'}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
@@ -534,7 +535,7 @@ export default function SettingsPage() {
                 type={showWebhookSecret ? 'text' : 'password'}
                 value={razorpayWebhookSecret}
                 onChange={(e) => setRazorpayWebhookSecret(e.target.value)}
-                placeholder="Enter webhook secret (from Razorpay Dashboard → Webhooks)"
+                placeholder={gateways.razorpay?.hasWebhookSecret ? '•••••••• (saved)' : 'Enter webhook secret (from Razorpay Dashboard → Webhooks)'}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
