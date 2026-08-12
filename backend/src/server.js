@@ -357,8 +357,7 @@ app.use(cors({
 
 // Razorpay Webhook (per shop) - MUST be before express.json() for raw body
 app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
-  const { shopId } = req.params;
-  const signature = req.headers['x-razorpay-signature'];
+  console.log('[Webhook] Hit webhook route for shop:', req.params.shopId);
   
   const shop = await prisma.shop.findUnique({ where: { id: shopId } });
   if (!shop) return res.status(404).send('Shop not found');
