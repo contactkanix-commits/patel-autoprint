@@ -358,10 +358,13 @@ app.use(cors({
 // Capture raw body for Razorpay webhook signature verification
 // This middleware runs BEFORE express.json() to preserve raw body
 app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
+  console.log('[Webhook Middleware] Called for:', req.method, req.path);
   if (req.method === 'POST') {
     let data = '';
     req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
+    req.on('data', chunk => { 
+      try { data += chunk; } catch (e) { console.error('[Webhook Middleware] Data error:', e.message); next(e); }
+    });
     req.on('error', (err) => {
       console.error('[Webhook Middleware] Request error:', err.message);
       next(err);
@@ -369,6 +372,7 @@ app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
     req.on('end', () => {
       try {
         req.rawBody = data;
+        console.log('[Webhook Middleware] Body captured, length:', data.length);
         next();
       } catch (err) {
         console.error('[Webhook Middleware] End error:', err.message);
