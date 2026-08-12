@@ -355,9 +355,29 @@ app.use(cors({
   credentials: true,
 }));
 
-// Razorpay Webhook (per shop) - MUST be before express.json() for raw body
-app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
-  console.log('[Webhook] Hit webhook route for shop:', req.params.shopId);
+// Capture raw body for Razorpay webhook signature verification
+// This middleware runs BEFORE express.json() to preserve raw body
+app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
+  if (req.method === 'POST') {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      req.rawBody = data;
+      next();
+    });
+  } else {
+    next();
+  }
+});
+
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+
+// Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
+app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
+  const { shopId } = req.params;
+  const signature = req.headers['x-razorpay-signature'];
   
   const shop = await prisma.shop.findUnique({ where: { id: shopId } });
   if (!shop) return res.status(404).send('Shop not found');
@@ -370,7 +390,7 @@ app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json
   const webhookSecret = decrypt(razorpayConfig.webhookSecret);
   const expectedSignature = crypto
     .createHmac('sha256', webhookSecret)
-    .update(req.body)
+    .update(req.rawBody || '')
     .digest('hex');
   
   if (signature !== expectedSignature) {
@@ -380,7 +400,7 @@ app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json
   
   let event;
   try {
-    event = JSON.parse(req.body);
+    event = JSON.parse(req.rawBody || '{}');
   } catch (e) {
     return res.status(400).send('Invalid JSON');
   }
@@ -413,9 +433,6 @@ app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json
   
   res.json({ status: 'ok' });
 }));
-
-app.use(express.json({ limit: '200mb' }));
-app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Static files
 const FRONTEND_DIST = path.join(__dirname, '..', '..', 'frontend', 'dist');
