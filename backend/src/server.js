@@ -390,9 +390,6 @@ app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 // Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
 app.post('/api/webhooks/razorpay/:shopId', async (req, res) => {
   try {
-    // TEST: Throw error to verify try-catch works
-    throw new Error('TEST ERROR');
-    
     const { shopId } = req.params;
     const signature = req.headers['x-razorpay-signature'];
     console.log('[Webhook] Received for shop:', shopId, 'hasSignature:', !!signature, 'rawBodyLength:', req.rawBody?.length || 0, 'rawBodyPreview:', req.rawBody?.substring(0, 100) || 'empty');
@@ -461,9 +458,9 @@ app.post('/api/webhooks/razorpay/:shopId', async (req, res) => {
     res.json({ status: 'ok' });
   } catch (err) {
     console.error('[Webhook] Error:', err.message, err.stack);
-    return res.status(500).json({ success: false, message: 'Webhook error: ' + err.message });
+return res.status(500).json({ success: false, message: 'Webhook error: ' + err.message });
   }
-}));
+});
 
 // Static files
 const FRONTEND_DIST = path.join(__dirname, '..', '..', 'frontend', 'dist');
