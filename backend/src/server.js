@@ -988,10 +988,14 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
 
   const order = await prisma.order.findUnique({
     where: { id },
-    include: { files: true },
+    include: { files: true, printJobs: true, customer: true },
   });
   if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
-  if (order.status !== 'PENDING') throw new AppError('Order already processed', 400, 'ORDER_NOT_PENDING');
+  
+  // Idempotency: if already confirmed, return existing order (handles double-click)
+  if (order.status !== 'PENDING') {
+    return res.json({ success: true, data: order, message: 'Order already confirmed' });
+  }
 
   const shop = await prisma.shop.findUnique({ where: { id: order.shopId } });
   const shopSettings = shop?.settings || {};
@@ -1009,18 +1013,18 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   const printMode = shopSettings.printMode || 'admin_approval';
   const autoPrintPrinterId = shopSettings.autoPrintPrinterId || null;
 
-  // Create print jobs
-  let targetPrinterId = null;
+  // Create print jobs - need printer NAME not ID for pdf-to-printer
+  let targetPrinterName = null;
   if (printMode === 'auto_print') {
-    targetPrinterId = autoPrintPrinterId;
+    const targetPrinter = autoPrintPrinterId
+      ? printers.find(p => p.id === autoPrintPrinterId)
+      : null;
     // Fallback to first online printer
-    if (!targetPrinterId || !printers.some(p => p.id === targetPrinterId)) {
-      targetPrinterId = printers.find(p => p.status === 'ONLINE')?.id || printers[0]?.id;
-    }
+    targetPrinterName = targetPrinter?.name || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
   }
 
   for (const file of order.files) {
-    const created = await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterId, targetPrinterId);
+    const created = await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
   }
 
   const initialStatus = printMode === 'auto_print' ? 'APPROVED' : 'PENDING';
@@ -1154,16 +1158,17 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
   // If auto-print mode, create print jobs and dispatch
   if (printMode === 'auto_print') {
     const printers = await prisma.printer.findMany({ where: { shopId } });
-    let targetPrinterId = autoPrintPrinterId;
+    let targetPrinterName = null;
+    const targetPrinter = autoPrintPrinterId
+      ? printers.find(p => p.id === autoPrintPrinterId)
+      : null;
     // Fallback to first online printer if configured printer not found
-    if (!targetPrinterId || !printers.some(p => p.id === targetPrinterId)) {
-      targetPrinterId = printers.find(p => p.status === 'ONLINE')?.id || printers[0]?.id;
-    }
-    if (targetPrinterId) {
+    targetPrinterName = targetPrinter?.name || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
+    if (targetPrinterName) {
       const orderFiles = await prisma.orderFile.findMany({ where: { orderId: order.id } });
       for (const ofile of orderFiles) {
         // Pass as both bw and color override so all jobs go to the same printer
-        await createPrintJobsForFile(ofile, order.id, shopId, printers, targetPrinterId, targetPrinterId);
+        await createPrintJobsForFile(ofile, order.id, shopId, printers, targetPrinterName, targetPrinterName);
       }
       // Dispatch print jobs
       const { processAndDispatchOrder } = require('./services/printProcessor');
