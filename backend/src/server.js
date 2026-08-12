@@ -362,9 +362,18 @@ app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
     let data = '';
     req.setEncoding('utf8');
     req.on('data', chunk => { data += chunk; });
+    req.on('error', (err) => {
+      console.error('[Webhook Middleware] Request error:', err.message);
+      next(err);
+    });
     req.on('end', () => {
-      req.rawBody = data;
-      next();
+      try {
+        req.rawBody = data;
+        next();
+      } catch (err) {
+        console.error('[Webhook Middleware] End error:', err.message);
+        next(err);
+      }
     });
   } else {
     next();
