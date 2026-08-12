@@ -2018,12 +2018,11 @@ res.json({
       name: shop.name,
       slug: shop.slug,
       agentKey: shop.agentKey,
-      customerPortalUrl: `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/s/${shop.slug}`,
+      customerPortalUrl: (process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com') + '/s/' + shop.slug,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       subscription,
     },
   });
-});
 }));
 
 // Update a shop (name + subscription)
@@ -2176,3 +2175,7 @@ process.on('SIGINT', async () => {
 });
 
 module.exports = app;
+
+
+
+
