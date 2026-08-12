@@ -387,6 +387,18 @@ app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
+// Simple test endpoint to verify routing works
+app.post('/api/test-webhook-debug', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Debug route works', 
+    rawBody: req.rawBody,
+    body: req.body,
+    path: req.path,
+    method: req.method
+  });
+});
+
 // Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
 app.post('/api/webhooks/razorpay/:shopId', async (req, res) => {
   try {
