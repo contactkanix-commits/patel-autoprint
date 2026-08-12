@@ -1640,13 +1640,14 @@ app.get('/api/settings/payment-gateways', authenticate, asyncHandler(async (req,
   const shop = await prisma.shop.findUnique({ where: { id: shopId } });
   const config = shop?.settings?.paymentGatewayConfig || {};
   
-  // Return masked config (secrets hidden)
+  // Return full config for admin (including actual keyId for form)
+  // Frontend will mask for display if needed
   const masked = {};
   for (const [gateway, cfg] of Object.entries(config)) {
     masked[gateway] = {
       enabled: cfg.enabled,
       mode: cfg.mode,
-      keyId: cfg.keyId ? cfg.keyId.slice(0, 8) + '***' : '',
+      keyId: cfg.keyId || '',  // Return actual keyId for form
       hasSecret: !!cfg.keySecret,
       hasWebhookSecret: !!cfg.webhookSecret,
       webhookUrl: cfg.webhookUrl || `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/api/webhooks/${gateway}/${shopId}`
