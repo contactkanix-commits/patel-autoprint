@@ -384,7 +384,7 @@ app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Razorpay Webhook (per shop) - uses req.rawBody captured by middleware
-app.post('/api/webhooks/razorpay/:shopId', asyncHandler(async (req, res) => {
+app.post('/api/webhooks/razorpay/:shopId', async (req, res) => {
   try {
     // TEST: Throw error to verify try-catch works
     throw new Error('TEST ERROR');
