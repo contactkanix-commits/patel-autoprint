@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { PrismaClient } = require('@prisma/client');
 const WebSocket = require('ws');
+const Razorpay = require('razorpay');
 
 require('dotenv').config();
 
@@ -21,6 +22,42 @@ const { calculatePrice } = require('./services/pricing');
 const { determineFlipDirection } = require('./services/duplex');
 const { discoverPrinters, routeJob } = require('./services/printer');
 const { processOrder, processPDF, parsePageRange, calculateSheetCount, countPagesFromRange, processAndDispatchOrder } = require('./services/printProcessor');
+
+const ENCRYPTION_KEY = process.env.PAYMENT_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 16;
+const TAG_LENGTH = 16;
+
+function encrypt(text) {
+  if (!text) return null;
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return iv.toString('hex') + ':' + encrypted.toString('hex') + ':' + tag.toString('hex');
+}
+
+function decrypt(encryptedText) {
+  if (!encryptedText) return null;
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) return null;
+  const iv = Buffer.from(parts[0], 'hex');
+  const encrypted = Buffer.from(parts[1], 'hex');
+  const tag = Buffer.from(parts[2], 'hex');
+  const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
+  decipher.setAuthTag(tag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return decrypted.toString('utf8');
+}
+
+function getRazorpayInstance(shop) {
+  const config = shop?.settings?.paymentGatewayConfig?.razorpay;
+  if (!config?.enabled || !config?.keyId || !config?.keySecret) return null;
+  return new Razorpay({
+    key_id: config.keyId,
+    key_secret: decrypt(config.keySecret)
+  });
+}
 
 
 // Helper: get next token for a shop
@@ -982,6 +1019,71 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
   res.json({ success: true, data: { breakdowns, total: grandTotal } });
 }));
 
+// Initiate Razorpay payment (UPI Intent flow)
+app.post('/api/guest/orders/:id/payment/initiate', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { method } = req.body; // 'razorpay' for UPI intent
+  
+  if (method !== 'razorpay') {
+    throw new AppError('Unsupported payment method', 400, 'UNSUPPORTED_METHOD');
+  }
+  
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: { files: true }
+  });
+  if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+  if (order.status !== 'PENDING') {
+    throw new AppError('Order already processed', 400, 'ORDER_NOT_PENDING');
+  }
+  
+  const shop = await prisma.shop.findUnique({ where: { id: order.shopId } });
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+  
+  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
+  if (!razorpayConfig?.enabled || !razorpayConfig?.keyId || !razorpayConfig?.keySecret) {
+    throw new AppError('Razorpay not configured for this shop', 400, 'GATEWAY_NOT_CONFIGURED');
+  }
+  
+  const razorpay = new Razorpay({
+    key_id: razorpayConfig.keyId,
+    key_secret: decrypt(razorpayConfig.keySecret)
+  });
+  
+  const rpOrder = await razorpay.orders.create({
+    amount: Math.round(order.totalPrice * 100), // paise
+    currency: 'INR',
+    receipt: `order_${order.token}`,
+    notes: { 
+      shopId: shop.id, 
+      orderId: order.id,
+      customerPhone: order.customer?.phone || ''
+    }
+  });
+  
+  // Update order with Razorpay order ID
+  await prisma.order.update({
+    where: { id },
+    data: { 
+      paymentMethod: 'razorpay',
+      razorpayOrderId: rpOrder.id
+    }
+  });
+  
+  res.json({
+    success: true,
+    data: {
+      orderId: rpOrder.id,
+      amount: rpOrder.amount,
+      currency: rpOrder.currency,
+      keyId: razorpayConfig.keyId,
+      shopName: shop.name,
+      orderToken: order.token,
+      upiIntent: true
+    }
+  });
+}));
+
 app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { paymentMethod } = req.body;
@@ -1532,6 +1634,98 @@ app.get('/api/settings/public/pricing', asyncHandler(async (req, res) => {
   });
 }));
 
+// Payment Gateway Configuration (per shop)
+app.get('/api/settings/payment-gateways', authenticate, asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  const config = shop?.settings?.paymentGatewayConfig || {};
+  
+  // Return masked config (secrets hidden)
+  const masked = {};
+  for (const [gateway, cfg] of Object.entries(config)) {
+    masked[gateway] = {
+      enabled: cfg.enabled,
+      mode: cfg.mode,
+      keyId: cfg.keyId ? cfg.keyId.slice(0, 8) + '***' : '',
+      hasSecret: !!cfg.keySecret,
+      hasWebhookSecret: !!cfg.webhookSecret,
+      webhookUrl: cfg.webhookUrl || `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/api/webhooks/${gateway}/${shopId}`
+    };
+  }
+  res.json({ success: true, data: masked });
+}));
+
+app.put('/api/settings/payment-gateways/:gateway', authenticate, asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const { gateway } = req.params;
+  const { enabled, mode, keyId, keySecret, webhookSecret } = req.body;
+  
+  const allowedGateways = ['razorpay'];
+  if (!allowedGateways.includes(gateway)) {
+    throw new AppError('Unsupported gateway', 400, 'UNSUPPORTED_GATEWAY');
+  }
+  
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  const currentConfig = shop?.settings?.paymentGatewayConfig || {};
+  
+  const updatedGateway = {
+    enabled: !!enabled,
+    mode: mode || 'test',
+    keyId: keyId || currentConfig[gateway]?.keyId || '',
+    keySecret: keySecret ? encrypt(keySecret) : currentConfig[gateway]?.keySecret || '',
+    webhookSecret: webhookSecret ? encrypt(webhookSecret) : currentConfig[gateway]?.webhookSecret || '',
+    webhookUrl: `${process.env.PUBLIC_URL || 'https://patel-autoprint.onrender.com'}/api/webhooks/${gateway}/${shopId}`
+  };
+  
+  await prisma.shop.update({
+    where: { id: shopId },
+    data: { settings: { ...(shop?.settings || {}), paymentGatewayConfig: { ...currentConfig, [gateway]: updatedGateway } } },
+  });
+  
+  res.json({ success: true, data: { message: 'Gateway config saved' } });
+}));
+
+app.post('/api/settings/payment-gateways/:gateway/test', authenticate, asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const { gateway } = req.params;
+  const { keyId, keySecret } = req.body;
+  
+  if (gateway !== 'razorpay') {
+    throw new AppError('Unsupported gateway', 400, 'UNSUPPORTED_GATEWAY');
+  }
+  
+  try {
+    const testRazorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
+    await testRazorpay.orders.create({ amount: 100, currency: 'INR', receipt: 'test_connection' });
+    res.json({ success: true, data: { message: 'Connection successful' } });
+  } catch (err) {
+    throw new AppError('Invalid credentials: ' + err.message, 400, 'INVALID_CREDENTIALS');
+  }
+}));
+
+// Public payment config for customer portal
+app.get('/api/guest/shop/:ref/payment-config', asyncHandler(async (req, res) => {
+  const shop = await findShopByRef(req.params.ref);
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+  
+  const config = shop.settings?.paymentGatewayConfig || {};
+  const razorpay = config.razorpay;
+  
+  if (!razorpay?.enabled) {
+    return res.json({ success: true, data: { razorpay: null } });
+  }
+  
+  res.json({
+    success: true,
+    data: {
+      razorpay: {
+        keyId: razorpay.keyId,
+        mode: razorpay.mode
+      }
+    }
+  });
+}));
+
 // Public info for a shop's customer portal (/s/:slug)
 app.get('/api/guest/shop/:ref', asyncHandler(async (req, res) => {
   const shop = await findShopByRef(req.params.ref);
@@ -1558,6 +1752,117 @@ app.post('/api/settings/upi-qr', authenticate, qrUpload.single('qr'), asyncHandl
   });
   res.json({ success: true, data: { url } });
 }));
+
+// Razorpay Webhook (per shop)
+app.post('/api/webhooks/razorpay/:shopId', express.raw({ type: 'application/json' }), asyncHandler(async (req, res) => {
+  const { shopId } = req.params;
+  const signature = req.headers['x-razorpay-signature'];
+  
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) return res.status(404).send('Shop not found');
+  
+  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
+  if (!razorpayConfig?.enabled || !razorpayConfig?.webhookSecret) {
+    return res.status(400).send('Webhook not configured');
+  }
+  
+  const webhookSecret = decrypt(razorpayConfig.webhookSecret);
+  const expectedSignature = crypto
+    .createHmac('sha256', webhookSecret)
+    .update(req.body)
+    .digest('hex');
+  
+  if (signature !== expectedSignature) {
+    console.error('[Razorpay Webhook] Invalid signature for shop', shopId);
+    return res.status(400).send('Invalid signature');
+  }
+  
+  let event;
+  try {
+    event = JSON.parse(req.body);
+  } catch (e) {
+    return res.status(400).send('Invalid JSON');
+  }
+  
+  console.log('[Razorpay Webhook] Event:', event.event, 'for shop', shopId);
+  
+  if (event.event === 'payment.captured') {
+    const payment = event.payload.payment.entity;
+    const orderId = payment.notes?.orderId;
+    const razorpayOrderId = payment.order_id;
+    
+    if (orderId) {
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (order && order.status === 'PENDING' && order.paymentStatus === 'UNPAID') {
+        await completeOrderWithPayment(orderId, payment.id, razorpayOrderId);
+        console.log('[Razorpay Webhook] Order completed:', orderId);
+      }
+    }
+  } else if (event.event === 'payment.failed') {
+    const payment = event.payload.payment.entity;
+    const orderId = payment.notes?.orderId;
+    if (orderId) {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
+      });
+      console.log('[Razorpay Webhook] Payment failed for order:', orderId);
+    }
+  }
+  
+  res.json({ status: 'ok' });
+}));
+
+// ============================================
+
+async function completeOrderWithPayment(orderId, paymentId, razorpayOrderId) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { files: true, shop: true }
+  });
+  if (!order) return;
+  
+  const shopSettings = order.shop?.settings || {};
+  const printMode = shopSettings.printMode || 'admin_approval';
+  const autoPrintPrinterId = shopSettings.autoPrintPrinterId || null;
+  
+  const printers = await prisma.printer.findMany({ where: { shopId: order.shopId } });
+  
+  let targetPrinterName = null;
+  let shouldAutoPrint = false;
+  
+  if (printMode === 'auto_print') {
+    const targetPrinter = autoPrintPrinterId
+      ? printers.find(p => p.id === autoPrintPrinterId)
+      : null;
+    targetPrinterName = targetPrinter?.name || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
+    shouldAutoPrint = !!targetPrinterName;
+  }
+  
+  for (const file of order.files) {
+    await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
+  }
+  
+  const initialStatus = shouldAutoPrint ? 'APPROVED' : 'PENDING';
+  const initialApprovedAt = shouldAutoPrint ? new Date() : null;
+  
+  await prisma.order.update({
+    where: { id: orderId },
+    data: {
+      status: initialStatus,
+      paymentStatus: 'PAID',
+      paymentMethod: 'razorpay',
+      razorpayPaymentId: paymentId,
+      razorpayOrderId: razorpayOrderId,
+      approvedAt: initialApprovedAt,
+    },
+  });
+  
+  if (shouldAutoPrint) {
+    const { processAndDispatchOrder } = require('./services/printProcessor');
+    await processAndDispatchOrder(orderId, prisma);
+  }
+}
 
 // ============================================
 // HEALTH CHECK
