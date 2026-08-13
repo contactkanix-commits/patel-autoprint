@@ -1017,9 +1017,8 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                 <Add sx={{ fontSize: 18, color: 'primary.main' }} />
                 Advanced Print Options
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Want different settings for some pages — e.g. pages 3-5 in colour, or extra copies of one page?
-                Add a section for specific page ranges.
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                Different settings for some pages? Add a section.
               </Typography>
             </Box>
             <Button
@@ -1030,7 +1029,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
               onClick={() => addSection(activeTab)}
               sx={{ textTransform: 'none', mb: 1, py: 0.75 }}
             >
-              {(s.sections || []).length > 0 ? 'Add another section for specific pages' : 'Add section for specific pages'}
+              {(s.sections || []).length > 0 ? 'Add another section' : 'Add section'}
             </Button>
 
             {(s.sections || []).length > 0 ? (
@@ -1087,18 +1086,18 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                     </Grid>
                     <Grid item xs={6} sm={4} md={4}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>Style</InputLabel>
-                        <Select value={section.printStyle || 'single'} label="Style"
+                        <InputLabel>Sides</InputLabel>
+                        <Select value={section.printStyle || 'single'} label="Sides"
                           onChange={(e) => updateSection(activeTab, si, 'printStyle', e.target.value)}>
-                          <MenuItem value="single">Simplex</MenuItem>
-                          <MenuItem value="duplex">Duplex</MenuItem>
+                          <MenuItem value="single">Single side</MenuItem>
+                          <MenuItem value="duplex">Both side</MenuItem>
                         </Select>
                       </FormControl>
                     </Grid>
                     <Grid item xs={6} sm={4} md={4}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>N-up</InputLabel>
-                        <Select value={section.pagesPerSheet || 1} label="N-up"
+                        <InputLabel>Pages per sheet</InputLabel>
+                        <Select value={section.pagesPerSheet || 1} label="Pages per sheet"
                           onChange={(e) => updateSection(activeTab, si, 'pagesPerSheet', parseInt(e.target.value))}>
                           {pagesPerSheetOptions.map((n) => (
                             <MenuItem key={n} value={n}>{n === 1 ? '1' : `${n}`}</MenuItem>
