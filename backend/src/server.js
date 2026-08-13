@@ -23,13 +23,23 @@ const { determineFlipDirection } = require('./services/duplex');
 const { discoverPrinters, routeJob } = require('./services/printer');
 const { processOrder, processPDF, parsePageRange, calculateSheetCount, countPagesFromRange, processAndDispatchOrder } = require('./services/printProcessor');
 
-const ENCRYPTION_KEY = process.env.PAYMENT_ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const ENCRYPTION_KEY = process.env.PAYMENT_ENCRYPTION_KEY || '';
+if (!ENCRYPTION_KEY) {
+  console.error('CRITICAL: PAYMENT_ENCRYPTION_KEY is not set. Gateway secrets cannot be encrypted/decrypted, and any stored secrets are unrecoverable. Set it in Render -> Environment before saving gateway keys again.');
+}
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
 
+function assertEncryptionKey() {
+  if (!ENCRYPTION_KEY) {
+    throw new Error('PAYMENT_ENCRYPTION_KEY is not configured. Add it to the server environment and re-save gateway keys.');
+  }
+}
+
 function encrypt(text) {
   if (!text) return null;
+  assertEncryptionKey();
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY, 'hex'), iv);
   const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
@@ -39,6 +49,7 @@ function encrypt(text) {
 
 function decrypt(encryptedText) {
   if (!encryptedText) return null;
+  assertEncryptionKey();
   const parts = encryptedText.split(':');
   if (parts.length !== 3) return null;
   const iv = Buffer.from(parts[0], 'hex');
@@ -1201,6 +1212,54 @@ app.post('/api/guest/orders/:id/payment/initiate', asyncHandler(async (req, res)
   });
 }));
 
+// Verify a Razorpay payment after checkout success (UPI Intent flow)
+app.post('/api/guest/orders/:id/payment/verify', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { paymentId } = req.body;
+
+  if (!paymentId) throw new AppError('paymentId is required', 400, 'MISSING_PAYMENT_ID');
+
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: { files: true }
+  });
+  if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+
+  const shop = await prisma.shop.findUnique({ where: { id: order.shopId } });
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+
+  const razorpayConfig = shop.settings?.paymentGatewayConfig?.razorpay;
+  if (!razorpayConfig?.enabled || !razorpayConfig?.keyId || !razorpayConfig?.keySecret) {
+    throw new AppError('Razorpay not configured for this shop', 400, 'GATEWAY_NOT_CONFIGURED');
+  }
+
+  const razorpay = new Razorpay({
+    key_id: razorpayConfig.keyId,
+    key_secret: decrypt(razorpayConfig.keySecret)
+  });
+
+  const payment = await razorpay.payments.fetch(paymentId);
+
+  if (payment.status === 'captured') {
+    await completeOrderWithPayment(order.id, payment.id, payment.order_id);
+    const updated = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: { files: true, printJobs: true, customer: true },
+    });
+    return res.json({ success: true, data: updated });
+  }
+
+  if (payment.status === 'failed') {
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { paymentStatus: 'FAILED', paymentFailureReason: payment.error_description || 'Payment failed' }
+    });
+    throw new AppError(payment.error_description || 'Payment failed', 402, 'PAYMENT_FAILED');
+  }
+
+  res.json({ success: false, message: `Payment not captured yet (status: ${payment.status})`, code: 'PAYMENT_NOT_CAPTURED' });
+}));
+
 app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { paymentMethod } = req.body;
@@ -1879,6 +1938,7 @@ async function completeOrderWithPayment(orderId, paymentId, razorpayOrderId) {
     include: { files: true, shop: true }
   });
   if (!order) return;
+  if (order.paymentStatus === 'PAID') return; // idempotent: webhook + client verify can both fire
   
   const shopSettings = order.shop?.settings || {};
   const printMode = shopSettings.printMode || 'admin_approval';

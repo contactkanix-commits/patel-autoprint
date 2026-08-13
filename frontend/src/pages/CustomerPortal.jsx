@@ -1137,7 +1137,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
   );
 }
 
-function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadingPrice, upiQrUrl, acceptedMethods }) {
+function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadingPrice, upiQrUrl, acceptedMethods, processingPayment, paymentError }) {
   if (loadingPrice) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, py: 8 }}>
@@ -1262,6 +1262,19 @@ function Step3Review({ order, paymentMethod, setPaymentMethod, priceData, loadin
           <img src={upiQrUrl} alt="UPI QR Code" style={{ width: 180, height: 180, objectFit: 'contain' }} />
           <Typography variant="caption" display="block" color="text.secondary">Scan to pay</Typography>
         </Box>
+      )}
+
+      {processingPayment && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, mt: 2.5, py: 1.5 }}>
+          <CircularProgress size={22} />
+          <Typography variant="body2">Opening secure payment window...</Typography>
+        </Box>
+      )}
+
+      {paymentError && (
+        <Alert severity="error" sx={{ mt: 2.5 }} onClose={() => {}}>
+          {paymentError}
+        </Alert>
       )}
     </Box>
   );
