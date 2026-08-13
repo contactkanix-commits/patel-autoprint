@@ -1147,11 +1147,17 @@ app.post('/api/guest/orders/:id/payment/initiate', asyncHandler(async (req, res)
   if (!razorpayConfig?.enabled || !razorpayConfig?.keyId || !razorpayConfig?.keySecret) {
     throw new AppError('Razorpay not configured for this shop', 400, 'GATEWAY_NOT_CONFIGURED');
   }
-  
-  const razorpay = new Razorpay({
-    key_id: razorpayConfig.keyId,
-    key_secret: decrypt(razorpayConfig.keySecret)
-  });
+
+  let razorpay;
+  try {
+    razorpay = new Razorpay({
+      key_id: razorpayConfig.keyId,
+      key_secret: decrypt(razorpayConfig.keySecret)
+    });
+  } catch (err) {
+    console.error('[Payment Initiate] Gateway secret decrypt failed:', err.message);
+    throw new AppError('Payment gateway secret is misconfigured. Re-save the Razorpay keys in Settings -> Payment Gateways.', 500, 'GATEWAY_SECRET_INVALID');
+  }
   
   const rpOrder = await razorpay.orders.create({
     amount: Math.round(order.totalPrice * 100), // paise
@@ -1208,10 +1214,16 @@ app.post('/api/guest/orders/:id/payment/verify', asyncHandler(async (req, res) =
     throw new AppError('Razorpay not configured for this shop', 400, 'GATEWAY_NOT_CONFIGURED');
   }
 
-  const razorpay = new Razorpay({
-    key_id: razorpayConfig.keyId,
-    key_secret: decrypt(razorpayConfig.keySecret)
-  });
+  let razorpay;
+  try {
+    razorpay = new Razorpay({
+      key_id: razorpayConfig.keyId,
+      key_secret: decrypt(razorpayConfig.keySecret)
+    });
+  } catch (err) {
+    console.error('[Payment Verify] Gateway secret decrypt failed:', err.message);
+    throw new AppError('Payment gateway secret is misconfigured. Re-save the Razorpay keys in Settings -> Payment Gateways.', 500, 'GATEWAY_SECRET_INVALID');
+  }
 
   const payment = await razorpay.payments.fetch(paymentId);
 
