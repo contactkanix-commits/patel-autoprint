@@ -1548,7 +1548,7 @@ export default function CustomerPortal() {
       
       const { orderId: rpOrderId, amount: rpAmount, keyId: rpKeyId, shopName: rpShopName, orderToken: rpOrderToken } = result.data;
       
-      // 3. Open Razorpay Checkout with UPI Intent (shows GPay, PhonePe, PayTM icons)
+      // 3. Open Razorpay Checkout restricted to UPI only (GPay, PhonePe, PayTM, etc.)
       const options = {
         key: rpKeyId,
         amount: rpAmount,
@@ -1556,9 +1556,14 @@ export default function CustomerPortal() {
         name: rpShopName,
         description: `Order #${rpOrderToken}`,
         order_id: rpOrderId,
-        upi: { flow: 'intent' },  // Shows GPay, PhonePe, PayTM app icons
-        method: { upi: true },    // Pre-select UPI
-        handler: async (response) => {
+        upi: { flow: 'intent' },  // Opens GPay / PhonePe / PayTM UPI apps directly
+        method: { upi: {} },      // Show ONLY UPI — cards, netbanking, wallet hidden
+        hide: {
+          netbanking: true,
+          card: true,
+          wallet: true,
+          bank_transfer: true,
+        },        handler: async (response) => {
           // Payment successful - verify on backend
           await verifyRazorpayPayment(orderId, response.razorpay_payment_id);
         },
