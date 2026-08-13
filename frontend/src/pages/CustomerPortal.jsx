@@ -41,7 +41,6 @@ import {
   Description as DocIcon,
   AccountCircle as AccountCircleIcon,
   Phone as PhoneIcon,
-  Email as EmailIcon,
   Info as InfoIcon,
   DarkMode,
   LightMode,
@@ -285,7 +284,7 @@ const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
             {dragActive ? 'Drop files here' : 'Tap to select files'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            or drag &amp; drop · Max 25 MB each · Held only until print finishes, then deleted
+            or drag &amp; drop · Large files welcome · Held only until print finishes, then deleted
           </Typography>
         </Box>
       </Paper>
@@ -351,7 +350,6 @@ const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
             label="Your Name"
             value={customerInfo.name}
             onChange={(e) => setCustomerInfo({ ...customerInfo, name: e.target.value })}
-            required
             InputProps={{ startAdornment: <InputAdornment position="start"><AccountCircleIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
             placeholder="e.g., John Doe"
           />
@@ -363,20 +361,9 @@ const Step1Upload = ({ files, setFiles, customerInfo, setCustomerInfo }) => {
             label="Phone Number"
             value={customerInfo.phone}
             onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })}
-            required
             InputProps={{ startAdornment: <InputAdornment position="start"><PhoneIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
             placeholder="e.g., +1234567890"
-          />
-        </Grid>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            size="small"
-            label="Email (optional)"
-            value={customerInfo.email}
-            onChange={(e) => setCustomerInfo({ ...customerInfo, email: e.target.value })}
-            InputProps={{ startAdornment: <InputAdornment position="start"><EmailIcon fontSize="small" sx={{ color: 'text.secondary' }} /></InputAdornment> }}
-            placeholder="your@email.com"
+            helperText="Optional — add so we can contact you about this order"
           />
         </Grid>
       </Grid>
@@ -807,7 +794,6 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
     const localSettings = fileSettings[fileIndex] || {};
     const merged = { ...dbSettings, ...localSettings };
     if (merged.colorMode === 'auto') merged.colorMode = 'bw';
-    if (!merged.colorMode && isImageFile(files[fileIndex])) merged.colorMode = 'color';
     return merged;
   };
 
@@ -1024,14 +1010,28 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
               </Grid>
             </Grid>
 
-            <Divider sx={{ my: 1.5 }} />
+            <Divider sx={{ my: 2 }} />
 
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="caption" fontWeight={600}>Advanced print options</Typography>
-              <Button size="small" startIcon={<Add />} onClick={() => addSection(activeTab)} sx={{ textTransform: 'none' }}>
-                Add
-              </Button>
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Add sx={{ fontSize: 18, color: 'primary.main' }} />
+                Advanced Print Options
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Want different settings for some pages — e.g. pages 3-5 in colour, or extra copies of one page?
+                Add a section for specific page ranges.
+              </Typography>
             </Box>
+            <Button
+              fullWidth
+              variant="outlined"
+              color="primary"
+              startIcon={<Add />}
+              onClick={() => addSection(activeTab)}
+              sx={{ textTransform: 'none', mb: 1, py: 0.75 }}
+            >
+              {(s.sections || []).length > 0 ? 'Add another section for specific pages' : 'Add section for specific pages'}
+            </Button>
 
             {(s.sections || []).length > 0 ? (
               (s.sections || []).map((section, si) => (
@@ -1125,11 +1125,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                   </Grid>
                 </Paper>
               ))
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                No sections — entire file uses same settings above.
-              </Typography>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       )}
@@ -1444,7 +1440,6 @@ export default function CustomerPortal() {
 
   const handleUpload = async () => {
     if (files.length === 0) { toast.error('Please select files'); return; }
-    if (!customerInfo.name || !customerInfo.phone) { toast.error('Please fill name and phone'); return; }
     setLoading(true);
     try {
       const formData = new FormData();

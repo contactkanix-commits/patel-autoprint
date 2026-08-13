@@ -221,7 +221,7 @@ async function createContactSheetPrintJob(imageFiles, order, shopId, printers, b
   const first = imageFiles[0];
   const settings = first.settings || {};
   const nUp = settings.pagesPerSheet || 1;
-  const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'color') === 'color') ? 'color' : 'bw';
+  const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'bw') === 'color') ? 'color' : 'bw';
   const copies = settings.copies || 1;
   const paperSize = settings.paperSize || 'A4';
 
@@ -627,7 +627,7 @@ app.post('/api/upload', authenticate, upload.array('files', 20), asyncHandler(as
     const defaultSettings = {
       paperSize: 'A4',
       orientation: 'auto',
-      colorMode: isImageFileType({ fileType }) ? 'color' : 'bw',
+      colorMode: 'bw',
       printStyle: 'single',
       copies: 1,
       pageRange: 'all',
@@ -734,7 +734,7 @@ app.put('/api/orders/:id/settings', authenticate, asyncHandler(async (req, res) 
   if (imgFiles.length > 0) {
     const s = imgFiles[0].settings || {};
     const nUp = s.pagesPerSheet || 1;
-    const colorMode = imgFiles.some((f) => (f.settings?.colorMode || 'color') === 'color') ? 'color' : 'bw';
+    const colorMode = imgFiles.some((f) => (f.settings?.colorMode || 'bw') === 'color') ? 'color' : 'bw';
     totalPages += Math.ceil(imgFiles.length / nUp);
     totalColorPages += colorMode === 'color' ? Math.ceil(imgFiles.length / nUp) : 0;
   }
@@ -925,7 +925,7 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
     const defaultSettings = {
       paperSize: analysis.suggestedPaperSize || 'A4',
       orientation: analysis.orientation || 'auto',
-      colorMode: isImageFileType({ fileType }) ? 'color' : 'bw',
+      colorMode: 'bw',
       printStyle: 'single',
       copies: 1,
       pageRange: 'all',
@@ -1029,7 +1029,7 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
   if (imageFiles.length > 0) {
     const s = imageFiles[0].settings || {};
     const nUp = s.pagesPerSheet || 1;
-    const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'color') === 'color') ? 'color' : 'bw';
+    const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'bw') === 'color') ? 'color' : 'bw';
     const copies = s.copies || 1;
     const totalPages = Math.ceil(imageFiles.length / nUp);
     const colorPages = colorMode === 'color' ? totalPages : 0;
@@ -1397,7 +1397,7 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
     const defaultSettings = {
       paperSize: analysis.suggestedPaperSize || 'A4',
       orientation: analysis.orientation || 'auto',
-      colorMode: isImageFileType({ fileType }) ? 'color' : 'bw',
+      colorMode: 'bw',
       printStyle: 'single',
       copies: 1,
       pageRange: 'all',
