@@ -366,36 +366,11 @@ app.use(cors({
   credentials: true,
 }));
 
-// Capture raw body for Razorpay webhook signature verification
-// This middleware runs BEFORE express.json() to preserve raw body
-app.use('/api/webhooks/razorpay/:shopId', (req, res, next) => {
-  console.log('[Webhook Middleware] Called for:', req.method, req.path);
-  if (req.method === 'POST') {
-    let data = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => { 
-      try { data += chunk; } catch (e) { console.error('[Webhook Middleware] Data error:', e.message); next(e); }
-    });
-    req.on('error', (err) => {
-      console.error('[Webhook Middleware] Request error:', err.message);
-      next(err);
-    });
-    req.on('end', () => {
-      try {
-        req.rawBody = data;
-        console.log('[Webhook Middleware] Body captured, length:', data.length);
-        next();
-      } catch (err) {
-        console.error('[Webhook Middleware] End error:', err.message);
-        next(err);
-      }
-    });
-  } else {
-    next();
-  }
-});
-
-app.use(express.json({ limit: '200mb' }));
+// Capture raw body for Razorpay webhook signature verification.
+// The `verify` callback runs before JSON parsing, so req.rawBody is always
+// the exact bytes received (unlike a stream-consuming middleware, which breaks
+// express.json and makes the webhook 500).
+app.use(express.json({ limit: '200mb', verify: (req, res, buf) => { req.rawBody = buf.toString('utf8'); } }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Simple test endpoint to verify routing works
