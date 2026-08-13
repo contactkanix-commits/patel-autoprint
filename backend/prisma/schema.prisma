@@ -85,8 +85,11 @@ model Order {
   customerId    String?
   shopId        String
   status        String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, REJECTED
-  paymentStatus String   @default("UNPAID")  // UNPAID, PAID, REFUNDED
+  paymentStatus String   @default("UNPAID")  // UNPAID, PAID, REFUNDED, FAILED
   paymentMethod String?
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  paymentFailureReason String?
   totalPrice    Float    @default(0)
   discount      Float    @default(0)
   tax           Float    @default(0)

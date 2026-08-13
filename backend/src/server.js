@@ -1168,6 +1168,9 @@ app.post('/api/guest/orders/:id/payment/initiate', asyncHandler(async (req, res)
       orderId: order.id,
       customerPhone: order.customer?.phone || ''
     }
+  }).catch((err) => {
+    console.error('[Payment Initiate] Razorpay create failed:', err.message, JSON.stringify(err.error || {}));
+    throw new AppError('Razorpay order creation failed: ' + (err.error?.description || err.message), 500, 'RAZORPAY_CREATE_FAILED');
   });
   
   // Update order with Razorpay order ID
@@ -1225,7 +1228,10 @@ app.post('/api/guest/orders/:id/payment/verify', asyncHandler(async (req, res) =
     throw new AppError('Payment gateway secret is misconfigured. Re-save the Razorpay keys in Settings -> Payment Gateways.', 500, 'GATEWAY_SECRET_INVALID');
   }
 
-  const payment = await razorpay.payments.fetch(paymentId);
+  const payment = await razorpay.payments.fetch(paymentId).catch((err) => {
+    console.error('[Payment Verify] Razorpay fetch failed:', err.message, JSON.stringify(err.error || {}));
+    throw new AppError('Razorpay payment fetch failed: ' + (err.error?.description || err.message), 500, 'RAZORPAY_FETCH_FAILED');
+  });
 
   if (payment.status === 'captured') {
     await completeOrderWithPayment(order.id, payment.id, payment.order_id);
