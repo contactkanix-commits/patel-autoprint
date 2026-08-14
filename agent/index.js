@@ -2,15 +2,63 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const { spawn } = require('child_process');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const POLL_INTERVAL = 5000;
+const CONVERT_SCRIPT = path.join(__dirname, 'convert-office-to-pdf.ps1');
 
 let print;
 try {
   print = require('pdf-to-printer');
 } catch (e) {
   print = null;
+}
+
+// Sniff the actual file type from magic bytes. The server may serve a PDF for
+// contact-sheet jobs even though job.file.fileType says jpeg/png, and it serves
+// original office files on Linux. Trusting the bytes avoids mis-extension.
+function classifyFile(filePath) {
+  const buf = Buffer.alloc(12);
+  let fd;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buf, 0, buf.length, 0);
+  } catch {
+    return { type: 'unknown', ext: 'bin' };
+  } finally {
+    if (fd) { try { fs.closeSync(fd); } catch {} }
+  }
+  const head = buf.subarray(0, 4).toString('latin1');
+  if (head === '%PDF') return { type: 'pdf', ext: 'pdf' };
+  if (buf[0] === 0xFF && buf[1] === 0xD8) return { type: 'image', ext: 'jpg' };
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return { type: 'image', ext: 'png' };
+  if (head === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return { type: 'image', ext: 'webp' };
+  // OOXML/Office (PK zip) or legacy OLE (D0CF11E0)
+  if ((buf[0] === 0x50 && buf[1] === 0x4B) || (buf[0] === 0xD0 && buf[1] === 0xCF)) return { type: 'office', ext: 'doc' };
+  return { type: 'unknown', ext: 'bin' };
+}
+
+// Convert office files (docx/pptx/xlsx) to PDF using Office COM automation
+function convertOfficeToPdf(inputPath, outputPdf) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass',
+      '-File', CONVERT_SCRIPT,
+      '-inputFile', inputPath,
+      '-outputPdf', outputPdf
+    ];
+    const child = spawn('powershell.exe', args, { timeout: 180000, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('close', (code) => {
+      if (code === 0 && stdout.trim().startsWith('OK:')) resolve(outputPdf);
+      else reject(new Error(`Office-to-PDF conversion failed: ${stderr || stdout}`));
+    });
+    child.on('error', reject);
+  });
 }
 
 function loadConfig() {
@@ -155,20 +203,44 @@ async function processJob(config, job) {
   const printDir = path.join(__dirname, 'print-cache');
   if (!fs.existsSync(printDir)) fs.mkdirSync(printDir, { recursive: true });
 
-  const ext = job.file?.fileType === 'pdf' ? '.pdf' : '.pdf';
-  const filePath = path.join(printDir, `${job.id}${ext}`);
+  const rawPath = path.join(printDir, `${job.id}.download`);
 
   console.log(`\n[${new Date().toLocaleTimeString()}] Processing: ${job.file?.originalName || job.id}`);
   console.log(`  Order #${job.order?.token || 'N/A'} | ${job.pagesPerSheet}-up | ${job.printStyle} | ${job.copies} copy(ies) | Printer: ${job.assignedPrinter || 'default'}`);
 
   // Download the print-ready file
   try {
-    await downloadFile(config, `/api/agent/jobs/${job.id}/file`, filePath);
+    await downloadFile(config, `/api/agent/jobs/${job.id}/file`, rawPath);
     console.log('  Downloaded.');
   } catch (e) {
     console.error('  Download failed:', e.message);
     await apiRequest(config, 'PUT', `/api/agent/jobs/${job.id}/status`, { status: 'FAILED', message: e.message });
     return;
+  }
+
+  // Sniff the real file type (a contact-sheet job's fileType is jpeg but the
+  // served file is a PDF, and office files come through as originals).
+  const { type, ext } = classifyFile(rawPath);
+  const filePath = path.join(printDir, `${job.id}.${ext}`);
+  if (filePath !== rawPath) {
+    try { fs.renameSync(rawPath, filePath); } catch { fs.copyFileSync(rawPath, filePath); fs.unlinkSync(rawPath); }
+  }
+
+  // Office files are served as originals (server can't convert on Linux);
+  // convert to PDF locally so the print job prints correctly.
+  let printPath = filePath;
+  if (type === 'office') {
+    try {
+      const pdfPath = path.join(printDir, `${job.id}.pdf`);
+      console.log('  Converting office file to PDF...');
+      await convertOfficeToPdf(filePath, pdfPath);
+      printPath = pdfPath;
+      console.log('  Converted to PDF.');
+    } catch (e) {
+      console.error('  Office conversion failed:', e.message);
+      await apiRequest(config, 'PUT', `/api/agent/jobs/${job.id}/status`, { status: 'FAILED', message: e.message });
+      return;
+    }
   }
 
   // Print
@@ -196,7 +268,7 @@ async function processJob(config, job) {
     console.log(`  Printer: ${job.assignedPrinter || 'default'}`);
     console.log(`  Settings: ${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}`);
 
-    await print.print(filePath, options);
+    await print.print(printPath, options);
     console.log('  Print sent successfully!');
 
     await apiRequest(config, 'PUT', `/api/agent/jobs/${job.id}/status`, { status: 'COMPLETED' });
@@ -207,6 +279,9 @@ async function processJob(config, job) {
 
   // Cleanup
   try { fs.unlinkSync(filePath); } catch {}
+  if (printPath !== filePath) {
+    try { fs.unlinkSync(printPath); } catch {}
+  }
 }
 
 async function setup() {

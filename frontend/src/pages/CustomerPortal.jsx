@@ -1547,7 +1547,8 @@ export default function CustomerPortal() {
 
   const fetchRazorpayConfig = async () => {
     try {
-      const result = await api.get(`/guest/shop/${shopSlug}/payment-config`);
+      const ref = shop?.slug || shopSlug;
+      const result = await api.get(ref ? `/guest/shop/${ref}/payment-config` : '/guest/payment-config');
       if (result.success && result.data.razorpay) {
         setRazorpayConfig(result.data.razorpay);
       }
@@ -1682,6 +1683,27 @@ export default function CustomerPortal() {
   const handlePlaceOrder = async () => {
     if (!uploadedOrder || !paymentMethod) { toast.error('Select payment method'); return; }
     
+    // Always refresh the price before charging so the server-side total is
+    // up to date (settings may have changed on the configure step).
+    setLoadingPrice(true);
+    let freshPrice = null;
+    try {
+      const priceResult = await api.get(`/guest/orders/${uploadedOrder.id}/price`);
+      if (priceResult.success) {
+        freshPrice = priceResult.data;
+        setPriceData(freshPrice);
+      }
+    } catch (err) {
+      toast.error(err.message || 'Could not load price. Please try again.');
+      return;
+    } finally {
+      setLoadingPrice(false);
+    }
+    if (!freshPrice?.total) {
+      toast.error('Could not load price. Please try again.');
+      return;
+    }
+
     // For online payment (Razorpay UPI Intent), handle differently
     if (paymentMethod === 'online') {
       if (!razorpayConfig) {
@@ -1806,7 +1828,7 @@ export default function CustomerPortal() {
         }}
       >
         <Container maxWidth="sm" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1.5 }}>
-          {activeStep > 0 && activeStep < 3 && (
+          {activeStep > 0 && activeStep < 3 && !(waSource && activeStep === 1) && (
             <Button
               variant="text"
               startIcon={<NavigateBefore />}

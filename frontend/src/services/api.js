@@ -5,10 +5,15 @@ const api = axios.create({
   baseURL: '/api',
 });
 
+const isGuestPath = (url) => {
+  const p = url || '';
+  return p.startsWith('/guest') || p.startsWith('/settings/public') || p.startsWith('/guest/');
+};
+
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    if (token) {
+    if (token && !isGuestPath(config.url)) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -20,7 +25,7 @@ api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response) {
-      if (error.response.status === 401) {
+      if (error.response.status === 401 && !isGuestPath(error.config?.url)) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/';

@@ -1927,6 +1927,29 @@ app.get('/api/guest/shop/:ref/payment-config', asyncHandler(async (req, res) => 
   });
 }));
 
+// Public payment config for the default shop (used by the /portal page which has no slug)
+app.get('/api/guest/payment-config', asyncHandler(async (req, res) => {
+  const shop = await findShopByRef();
+  if (!shop) throw new AppError('Shop not found', 404, 'SHOP_NOT_FOUND');
+  
+  const config = shop.settings?.paymentGatewayConfig || {};
+  const razorpay = config.razorpay;
+  
+  if (!razorpay?.enabled) {
+    return res.json({ success: true, data: { razorpay: null } });
+  }
+  
+  res.json({
+    success: true,
+    data: {
+      razorpay: {
+        keyId: razorpay.keyId,
+        mode: razorpay.mode
+      }
+    }
+  });
+}));
+
 // Public info for a shop's customer portal (/s/:slug)
 app.get('/api/guest/shop/:ref', asyncHandler(async (req, res) => {
   const shop = await findShopByRef(req.params.ref);

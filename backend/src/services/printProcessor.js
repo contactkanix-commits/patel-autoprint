@@ -171,8 +171,15 @@ async function processFile(file, pageRange, settings, jobId) {
     return processPDF(file, pageRange, settings, jobId);
   }
 
-  // Office files: convert to PDF first, then process through PDF pipeline
+  // Office files: convert to PDF first, then process through PDF pipeline.
+  // Office COM (via powershell.exe) only exists on Windows. On Linux servers
+  // (e.g. Render) conversion is skipped and the original file is served so the
+  // agent can convert it locally on the machine that will print it.
   if (officeExts.includes(ext)) {
+    if (process.platform !== 'win32') {
+      console.log(`[processFile] Office conversion skipped on ${process.platform}; agent will convert locally.`);
+      return file.storagePath;
+    }
     const pdfPath = await convertOfficeToPdf(file.storagePath);
     // Create a temporary file object with the PDF path
     const pdfFile = {
