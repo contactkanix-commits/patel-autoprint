@@ -1,7 +1,7 @@
 {
   "name": "patel-autoprint-admin",
   "productName": "Patel AutoPrint Admin",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Patel AutoPrint - Admin desktop app for managing orders, printers, and pricing",
   "main": "electron/main.js",
   "author": "Patel AutoPrint",

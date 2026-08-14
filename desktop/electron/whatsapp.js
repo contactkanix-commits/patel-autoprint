@@ -301,9 +301,11 @@ class WhatsAppClient extends EventEmitter {
 
     const media = unwrapped[content];
     const mime = media?.mimetype || '';
+    // Baileys' proto field is fileName (filename is always undefined) - fall back safely
+    const docName = media?.fileName || media?.filename || media?.title || '';
     const originalName =
-      content === 'documentMessage' && media?.filename
-        ? media.filename
+      content === 'documentMessage' && docName
+        ? docName
         : `whatsapp_${Date.now()}.${extFromMimetype(mime)}`;
 
     if (!ALLOWED_EXT.test(originalName)) {
