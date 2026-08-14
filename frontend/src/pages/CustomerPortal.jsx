@@ -37,9 +37,6 @@ import {
   ContentCopy,
   Add,
   Remove,
-  Edit as EditIcon,
-  Check as CheckIcon,
-  Close as CloseIcon,
   LocalPrintshop as PrintIcon,
   Description as DocIcon,
   AccountCircle as AccountCircleIcon,
@@ -789,34 +786,8 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   );
 }
 
-function Step2Configure({ files, fileSettings, setFileSettings, orderId }) {
+function Step2Configure({ files, fileSettings, setFileSettings }) {
   const [activeTab, setActiveTab] = useState(0);
-  const [renamingId, setRenamingId] = useState(null);
-  const [nameDraft, setNameDraft] = useState({});
-
-  const displayName = (file) =>
-    (nameDraft[file?.id]?.trim() || file?.originalName || file?.name || 'File');
-
-  const startRename = (file) => {
-    setRenamingId(file.id);
-    setNameDraft((prev) => ({ ...prev, [file.id]: file.originalName || file.name || '' }));
-  };
-
-  const cancelRename = () => setRenamingId(null);
-
-  const saveRename = async (file) => {
-    const newName = (nameDraft[file.id] || '').trim();
-    if (!newName) { toast.error('Name cannot be empty'); return; }
-    try {
-      await api.patch(`/guest/orders/${orderId}/files/${file.id}`, { name: newName });
-      setNameDraft((prev) => ({ ...prev, [file.id]: newName }));
-      toast.success('File renamed');
-    } catch {
-      // interceptor already shows the error
-    } finally {
-      setRenamingId(null);
-    }
-  };
 
   const applyToAll = () => {
     const base = getSettings(activeTab);
@@ -910,7 +881,7 @@ function Step2Configure({ files, fileSettings, setFileSettings, orderId }) {
           {files.map((file, index) => (
             <Chip
               key={index}
-              label={displayName(file).substring(0, 22)}
+              label={file.originalName?.substring(0, 22) || file.name?.substring(0, 22)}
               onClick={() => setActiveTab(index)}
               color={activeTab === index ? 'primary' : 'default'}
               variant={activeTab === index ? 'filled' : 'outlined'}
@@ -966,41 +937,14 @@ function Step2Configure({ files, fileSettings, setFileSettings, orderId }) {
       {currentFile && (
         <Card variant="outlined">
           <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: 1.5 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 1 }}>
-              {renamingId === currentFile.id ? (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    autoFocus
-                    value={nameDraft[currentFile.id] || ''}
-                    onChange={(e) => setNameDraft((prev) => ({ ...prev, [currentFile.id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveRename(currentFile);
-                      if (e.key === 'Escape') cancelRename();
-                    }}
-                    inputProps={{ maxLength: 120 }}
-                  />
-                  <IconButton size="small" color="primary" onClick={() => saveRename(currentFile)}><CheckIcon fontSize="small" /></IconButton>
-                  <IconButton size="small" onClick={cancelRename}><CloseIcon fontSize="small" /></IconButton>
-                </Box>
-              ) : (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flex: 1 }}>
-                  <Typography variant="body2" fontWeight={600} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {displayName(currentFile)}
-                  </Typography>
-                  <IconButton size="small" onClick={() => startRename(currentFile)} title="Rename file">
-                    <EditIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Box>
-              )}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, gap: 1 }}>
+              <Typography variant="body2" fontWeight={600} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentFile.originalName || currentFile.name}
+              </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
                 {currentFile.pageCount || '?'} page{currentFile.pageCount === 1 ? '' : 's'}
               </Typography>
             </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-              Tap the pencil to rename this file
-            </Typography>
 
             {files.length > 1 && (
               <Button
@@ -1801,7 +1745,7 @@ export default function CustomerPortal() {
               <Step1Upload files={files} setFiles={setFiles} customerInfo={customerInfo} setCustomerInfo={setCustomerInfo} />
             )}
             {activeStep === 1 && (
-              <Step2Configure files={uploadedOrder?.files || files} fileSettings={fileSettings} setFileSettings={setFileSettings} orderId={uploadedOrder?.id} />
+              <Step2Configure files={uploadedOrder?.files || files} fileSettings={fileSettings} setFileSettings={setFileSettings} />
             )}
             {activeStep === 2 && (
               <Step3Review order={uploadedOrder} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
