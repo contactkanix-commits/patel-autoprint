@@ -1002,6 +1002,29 @@ app.put('/api/guest/orders/:id/settings', asyncHandler(async (req, res) => {
   res.json({ success: true, data: updatedOrder });
 }));
 
+// Rename a file in a guest order (WhatsApp names are generated, so let customers label files)
+app.patch('/api/guest/orders/:id/files/:fileId', asyncHandler(async (req, res) => {
+  const { id, fileId } = req.params;
+  let name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  if (!name) throw new AppError('File name is required', 400, 'NAME_REQUIRED');
+  if (name.length > 120) throw new AppError('File name is too long', 400, 'NAME_TOO_LONG');
+
+  const order = await prisma.order.findUnique({ where: { id } });
+  if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+
+  const orderFile = await prisma.orderFile.findFirst({ where: { id: fileId, orderId: id } });
+  if (!orderFile) throw new AppError('File not found', 404, 'FILE_NOT_FOUND');
+
+  const ext = path.extname(orderFile.originalName);
+  if (ext && !name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;
+
+  const updated = await prisma.orderFile.update({
+    where: { id: fileId },
+    data: { originalName: name },
+  });
+  res.json({ success: true, data: updated });
+}));
+
 app.get('/api/guest/orders/:id', asyncHandler(async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.id },

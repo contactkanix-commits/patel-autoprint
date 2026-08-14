@@ -37,6 +37,9 @@ import {
   ContentCopy,
   Add,
   Remove,
+  Edit as EditIcon,
+  Check as CheckIcon,
+  Close as CloseIcon,
   LocalPrintshop as PrintIcon,
   Description as DocIcon,
   AccountCircle as AccountCircleIcon,
@@ -786,8 +789,47 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   );
 }
 
-function Step2Configure({ files, fileSettings, setFileSettings }) {
+function Step2Configure({ files, fileSettings, setFileSettings, orderId }) {
   const [activeTab, setActiveTab] = useState(0);
+  const [renamingId, setRenamingId] = useState(null);
+  const [nameDraft, setNameDraft] = useState({});
+
+  const displayName = (file) =>
+    (nameDraft[file?.id]?.trim() || file?.originalName || file?.name || 'File');
+
+  const startRename = (file) => {
+    setRenamingId(file.id);
+    setNameDraft((prev) => ({ ...prev, [file.id]: file.originalName || file.name || '' }));
+  };
+
+  const cancelRename = () => setRenamingId(null);
+
+  const saveRename = async (file) => {
+    const newName = (nameDraft[file.id] || '').trim();
+    if (!newName) { toast.error('Name cannot be empty'); return; }
+    try {
+      await api.patch(`/guest/orders/${orderId}/files/${file.id}`, { name: newName });
+      setNameDraft((prev) => ({ ...prev, [file.id]: newName }));
+      toast.success('File renamed');
+    } catch {
+      // interceptor already shows the error
+    } finally {
+      setRenamingId(null);
+    }
+  };
+
+  const applyToAll = () => {
+    const base = getSettings(activeTab);
+    const next = {};
+    files.forEach((f, i) => {
+      next[i] = {
+        ...base,
+        sections: (base.sections || []).map((sec) => ({ ...sec, id: Date.now() + Math.floor(Math.random() * 1000) })),
+      };
+    });
+    setFileSettings(next);
+    toast.success('Settings applied to all files');
+  };
 
   const getSettings = (fileIndex) => {
     const dbSettings = files[fileIndex]?.settings || {};
@@ -868,7 +910,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
           {files.map((file, index) => (
             <Chip
               key={index}
-              label={file.originalName?.substring(0, 20) || file.name?.substring(0, 20)}
+              label={displayName(file).substring(0, 22)}
               onClick={() => setActiveTab(index)}
               color={activeTab === index ? 'primary' : 'default'}
               variant={activeTab === index ? 'filled' : 'outlined'}
@@ -878,7 +920,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
         </Box>
       )}
 
-      {allImages && (
+      {currentFile && isImageFile(currentFile) && (
         <Box sx={{ mb: 1.5 }}>
           <Typography
             variant="caption"
@@ -889,12 +931,12 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
             Photos per page
           </Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 0.75 }}>
-            {pagesPerSheetOptions.filter((n) => n > 1).map((n) => {
+            {pagesPerSheetOptions.map((n) => {
               const selected = (s.pagesPerSheet || 1) === n;
               return (
                 <ButtonBase
                   key={n}
-                  onClick={() => updateAllImageSettings('pagesPerSheet', n)}
+                  onClick={() => (allImages ? updateAllImageSettings('pagesPerSheet', n) : updateSetting(activeTab, 'pagesPerSheet', n))}
                   sx={{
                     py: 1,
                     borderRadius: 1.5,
@@ -913,15 +955,65 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
               );
             })}
           </Box>
+          {allImages && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+              Applies to all {totalImages} photos
+            </Typography>
+          )}
         </Box>
       )}
 
       {currentFile && (
         <Card variant="outlined">
           <CardContent sx={{ p: { xs: 1.5, sm: 2 }, '&:last-child': { pb: 1.5 } }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
-              {currentFile.originalName || currentFile.name} — {currentFile.pageCount || '?'} page{currentFile.pageCount === 1 ? '' : 's'}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, gap: 1 }}>
+              {renamingId === currentFile.id ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    autoFocus
+                    value={nameDraft[currentFile.id] || ''}
+                    onChange={(e) => setNameDraft((prev) => ({ ...prev, [currentFile.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveRename(currentFile);
+                      if (e.key === 'Escape') cancelRename();
+                    }}
+                    inputProps={{ maxLength: 120 }}
+                  />
+                  <IconButton size="small" color="primary" onClick={() => saveRename(currentFile)}><CheckIcon fontSize="small" /></IconButton>
+                  <IconButton size="small" onClick={cancelRename}><CloseIcon fontSize="small" /></IconButton>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, flex: 1 }}>
+                  <Typography variant="body2" fontWeight={600} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayName(currentFile)}
+                  </Typography>
+                  <IconButton size="small" onClick={() => startRename(currentFile)} title="Rename file">
+                    <EditIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Box>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                {currentFile.pageCount || '?'} page{currentFile.pageCount === 1 ? '' : 's'}
+              </Typography>
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Tap the pencil to rename this file
             </Typography>
+
+            {files.length > 1 && (
+              <Button
+                fullWidth
+                variant="outlined"
+                color="primary"
+                startIcon={<ContentCopy />}
+                onClick={applyToAll}
+                sx={{ textTransform: 'none', mb: 1.5 }}
+              >
+                Apply these settings to all files
+              </Button>
+            )}
 
             <Grid container spacing={2}>
               <Grid item xs={12} sm={5}>
@@ -989,7 +1081,7 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                   <CopiesStepper value={s.copies ?? 1} onChange={(v) => updateSetting(activeTab, 'copies', v)} />
                   <OptionGroup
-                    label="Pages per sheet"
+                    label={isImageFile(currentFile) ? 'Photos per page' : 'Pages per sheet'}
                     cols={3}
                     value={s.pagesPerSheet || 1}
                     onChange={(v) => (allImages
@@ -1709,7 +1801,7 @@ export default function CustomerPortal() {
               <Step1Upload files={files} setFiles={setFiles} customerInfo={customerInfo} setCustomerInfo={setCustomerInfo} />
             )}
             {activeStep === 1 && (
-              <Step2Configure files={uploadedOrder?.files || files} fileSettings={fileSettings} setFileSettings={setFileSettings} />
+              <Step2Configure files={uploadedOrder?.files || files} fileSettings={fileSettings} setFileSettings={setFileSettings} orderId={uploadedOrder?.id} />
             )}
             {activeStep === 2 && (
               <Step3Review order={uploadedOrder} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
