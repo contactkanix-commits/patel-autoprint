@@ -1605,7 +1605,11 @@ export default function CustomerPortal() {
             { type: 'bhim_upi', flow: 'intent' },
           ],
         },
-        method: { upi: {} }, // Show ONLY UPI — cards, netbanking, wallet hidden
+        method: {
+          upi: {
+            apps: ['google_pay', 'phonepe', 'paytm', 'bhim_upi']
+          }
+        },
         hide: {
           netbanking: true,
           card: true,
