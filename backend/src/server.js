@@ -1322,8 +1322,16 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
     shouldAutoPrint = targetPrinterName && method === 'cash';
   }
 
-  for (const file of order.files) {
-    const created = await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
+  // Images are grouped into a single contact-sheet PDF; docs get one job per file.
+  // (Printing a raw JPG/PNG as a ".pdf" makes the printer output blank pages.)
+  const imageFiles = order.files.filter((f) => isImageFileType(f));
+  const docFiles = order.files.filter((f) => !isImageFileType(f));
+
+  if (imageFiles.length > 0) {
+    await createContactSheetPrintJob(imageFiles, order, order.shopId, printers, targetPrinterName, targetPrinterName);
+  }
+  for (const file of docFiles) {
+    await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
   }
 
   const initialStatus = shouldAutoPrint ? 'APPROVED' : 'PENDING';
@@ -1973,10 +1981,18 @@ async function completeOrderWithPayment(orderId, paymentId, razorpayOrderId) {
     shouldAutoPrint = !!targetPrinterName;
   }
   
-  for (const file of order.files) {
+  // Images are grouped into a single contact-sheet PDF; docs get one job per file.
+  // (Printing a raw JPG/PNG as a ".pdf" makes the printer output blank pages.)
+  const imageFiles = order.files.filter((f) => isImageFileType(f));
+  const docFiles = order.files.filter((f) => !isImageFileType(f));
+
+  if (imageFiles.length > 0) {
+    await createContactSheetPrintJob(imageFiles, order, order.shopId, printers, targetPrinterName, targetPrinterName);
+  }
+  for (const file of docFiles) {
     await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
   }
-  
+
   const initialStatus = shouldAutoPrint ? 'APPROVED' : 'PENDING';
   const initialApprovedAt = shouldAutoPrint ? new Date() : null;
   
@@ -2199,14 +2215,14 @@ app.get('/api/agent/jobs/:id/file', authenticate, requireActiveSubscription, asy
   if (!job) throw new AppError('Print job not found', 404, 'NOT_FOUND');
   if (job.shopId !== req.user.shopId) throw new AppError('Access denied', 403, 'FORBIDDEN');
 
-  // Find the print-ready file
+  // Find the print-ready file (contact sheets are saved as *_contact.pdf)
   const printReadyDir = path.join(path.dirname(job.file.storagePath), 'print-ready');
   const pattern = `${id}_printready.pdf`;
 
   let filePath;
   try {
     const files = await fsPromises.readdir(printReadyDir);
-    const match = files.find(f => f.includes(id) && f.endsWith('_printready.pdf'));
+    const match = files.find(f => f.includes(id) && (f.endsWith('_printready.pdf') || f.endsWith('_contact.pdf')));
     if (match) filePath = path.join(printReadyDir, match);
   } catch {}
 

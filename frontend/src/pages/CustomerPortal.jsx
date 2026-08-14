@@ -1586,14 +1586,34 @@ export default function CustomerPortal() {
         name: rpShopName,
         description: `Order #${rpOrderToken}`,
         order_id: rpOrderId,
-        upi: { flow: 'intent' },  // Opens GPay / PhonePe / PayTM UPI apps directly
-        method: { upi: {} },      // Show ONLY UPI — cards, netbanking, wallet hidden
+        // Pre-fill the customer contact so the checkout never asks for a mobile number
+        prefill: {
+          name: customerInfo.name || '',
+          contact: customerInfo.phone || '',
+          email: customerInfo.email || '',
+        },
+        // UPI Intent: shows Google Pay / PhonePe / PayTM / BHIM buttons that open
+        // the selected app directly - no VPA entry, no mobile number, no SMS.
+        upi: {
+          flow: 'intent',
+          intent_flow_timeout: 5,
+          intents: [
+            { type: 'google_pay', flow: 'intent' },
+            { type: 'phonepe', flow: 'intent' },
+            { type: 'paytm', flow: 'intent' },
+            { type: 'bhim_upi', flow: 'intent' },
+          ],
+        },
+        method: { upi: {} }, // Show ONLY UPI — cards, netbanking, wallet hidden
         hide: {
           netbanking: true,
           card: true,
           wallet: true,
           bank_transfer: true,
-        },        handler: async (response) => {
+          emi: true,
+          pay_later: true,
+        },
+        handler: async (response) => {
           // Payment successful - verify on backend
           await verifyRazorpayPayment(orderId, response.razorpay_payment_id);
         },
@@ -1627,6 +1647,7 @@ export default function CustomerPortal() {
         setUploadedOrder(result.data);
         toast.success('Payment verified! Order confirmed.');
         setActiveStep(3);
+        pushShopHistory();
       } else {
         throw new Error(result.message || 'Payment verification failed');
       }
@@ -1678,6 +1699,7 @@ export default function CustomerPortal() {
         setUploadedOrder(result.data);
         toast.success('Order placed!');
         setActiveStep(3);
+        pushShopHistory();
       }
     } catch (err) {
       toast.error(err.message || 'Failed to place order');
@@ -1704,6 +1726,14 @@ export default function CustomerPortal() {
     setPriceData(null);
     setWaSource(false);
     setWaError('');
+  };
+
+  // After the order is placed, push a fresh history entry for the current shop URL
+  // so the browser Back button returns to this shop page (not the homepage).
+  const pushShopHistory = () => {
+    try {
+      window.history.pushState({}, '', window.location.pathname + window.location.search);
+    } catch {}
   };
 
   const displayFiles = activeStep > 0 ? (uploadedOrder?.files?.length || 0) : files.length;
