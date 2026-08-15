@@ -62,30 +62,6 @@ function setupAutoUpdater() {
   setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
 }
 
-// IPC handlers for manual update check
-ipcMain.handle('app:check-for-updates', async () => {
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    if (!result) return { available: false, version: null, downloaded: false };
-    const { updateInfo } = result;
-    return {
-      available: !!updateInfo,
-      version: updateInfo?.version || null,
-      downloaded: false,
-    };
-  } catch (err) {
-    // If no update available, electron-updater throws; treat as no update
-    if (err?.message?.includes('No updates available') || err?.message?.includes('latest')) {
-      return { available: false, version: null, downloaded: false };
-    }
-    throw err;
-  }
-});
-
-ipcMain.handle('app:install-update', async () => {
-  autoUpdater.quitAndInstall();
-});
-
 function credsFile() {
   return path.join(app.getPath('userData'), 'agent-credentials.json');
 }
@@ -156,41 +132,52 @@ function createWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, '../resources/tray.png'));
-  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  try {
+    const iconPath = path.join(__dirname, '../resources/tray.png');
+    let icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) {
+      // Fall back to the app's own executable icon so the tray still works
+      // even if tray.png is missing from the build.
+      icon = nativeImage.createFromPath(process.execPath);
+    }
+    if (icon.isEmpty()) return; // No usable icon — skip tray, window still works
+    tray = new Tray(icon.resize({ width: 16, height: 16 }));
 
-  const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show Patel AutoPrint Admin', click: () => mainWindow?.show() },
-    {
-      label: 'Agent: ' + (agent.running ? 'Running' : 'Stopped'),
-      enabled: false,
-    },
-    { type: 'separator' },
-    {
-      label: 'Start Agent',
-      click: () => agent.start(),
-    },
-    {
-      label: 'Stop Agent',
-      click: () => agent.stop(),
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        isQuitting = true;
-        app.quit();
+    const contextMenu = Menu.buildFromTemplate([
+      { label: 'Show Patel AutoPrint Admin', click: () => mainWindow?.show() },
+      {
+        label: 'Agent: ' + (agent.running ? 'Running' : 'Stopped'),
+        enabled: false,
       },
-    },
-  ]);
+      { type: 'separator' },
+      {
+        label: 'Start Agent',
+        click: () => agent.start(),
+      },
+      {
+        label: 'Stop Agent',
+        click: () => agent.stop(),
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        },
+      },
+    ]);
 
-  tray.setToolTip('Patel AutoPrint Admin');
-  tray.setContextMenu(contextMenu);
-  tray.on('double-click', () => mainWindow?.show());
+    tray.setToolTip('Patel AutoPrint Admin');
+    tray.setContextMenu(contextMenu);
+    tray.on('double-click', () => mainWindow?.show());
 
-  agent.on('status', () => {
-    tray?.setToolTip(`Patel AutoPrint Admin - Agent ${agent.running ? 'Running' : 'Stopped'}`);
-  });
+    agent.on('status', () => {
+      tray?.setToolTip(`Patel AutoPrint Admin - Agent ${agent.running ? 'Running' : 'Stopped'}`);
+    });
+  } catch (err) {
+    console.error('[tray] failed to create:', err?.message || err);
+  }
 }
 
 function broadcastAgentStatus() {
