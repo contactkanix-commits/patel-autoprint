@@ -51,7 +51,20 @@ function setupAutoUpdater() {
   autoUpdater.on('update-available', (info) => sendUpdateStatus({ state: 'available', version: info.version }));
   autoUpdater.on('update-not-available', () => sendUpdateStatus({ state: 'up-to-date' }));
   autoUpdater.on('download-progress', (p) => sendUpdateStatus({ state: 'downloading', percent: Math.round(p.percent) }));
-  autoUpdater.on('update-downloaded', (info) => sendUpdateStatus({ state: 'downloaded', version: info.version }));
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus({ state: 'downloaded', version: info.version });
+    // Auto-install shortly after download so the update applies without a manual click
+    setTimeout(() => {
+      if (isQuitting) return;
+      isQuitting = true;
+      try {
+        autoUpdater.quitAndInstall(true, true);
+      } catch (e) {
+        console.error('[auto-update] quitAndInstall failed:', e?.message);
+      }
+      setTimeout(() => app.exit(0), 250);
+    }, 4000);
+  });
   autoUpdater.on('error', (err) => {
     console.error('[auto-update]', err?.message || err);
     sendUpdateStatus({ state: 'error', message: err?.message || 'Update check failed' });

@@ -80,6 +80,23 @@ export default function SettingsPage() {
   // App Update state
   const [updateState, setUpdateState] = useState({ checking: false, available: false, version: null, downloaded: false, error: null });
 
+  // Reflect live auto-update status (downloading / downloaded) pushed from main
+  useEffect(() => {
+    if (!window.patelApp?.updates?.onStatus) return;
+    const unsub = window.patelApp.updates.onStatus((status) => {
+      if (!status) return;
+      setUpdateState((s) => ({
+        ...s,
+        checking: status.state === 'checking',
+        available: s.available || status.state === 'available' || status.state === 'downloading' || status.state === 'downloaded',
+        version: status.version || s.version,
+        downloaded: status.state === 'downloaded',
+        error: status.state === 'error' ? status.message : s.error,
+      }));
+    });
+    return unsub;
+  }, []);
+
   const checkForUpdates = async () => {
     setUpdateState(s => ({ ...s, checking: true, error: null }));
     try {
