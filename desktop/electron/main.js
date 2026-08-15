@@ -116,7 +116,7 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    show: false,
+    show: true,
     title: 'Patel AutoPrint Admin',
     autoHideMenuBar: true,
     webPreferences: {
