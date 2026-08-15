@@ -225,8 +225,8 @@ async function createContactSheetPrintJob(imageFiles, order, shopId, printers, b
   const copies = settings.copies || 1;
   const paperSize = settings.paperSize || 'A4';
 
-  const job = {
-    orderId: order.id,
+const job = {
+    orderId,
     fileId: first.id,
     sectionIndex: 0,
     pages: JSON.stringify(imageFiles.map((f) => f.id)), // file IDs as strings
@@ -236,6 +236,7 @@ async function createContactSheetPrintJob(imageFiles, order, shopId, printers, b
     pagesPerSheet: nUp,
     flipDirection: 'long-edge',
     copies,
+    orientation: 'auto',
     shopId,
   };
 
@@ -292,6 +293,7 @@ async function createPrintJobsForFile(file, orderId, shopId, printers, bwOverrid
           section.orientation || s.orientation || 'auto'
         ),
         copies: section.copies || s.copies || 1,
+        orientation: section.orientation || s.orientation || 'auto',
         shopId,
       };
       const printJob = await prisma.printJob.create({ data: assignPrinter(job) });
@@ -320,6 +322,7 @@ async function createPrintJobsForFile(file, orderId, shopId, printers, bwOverrid
       s.orientation
     ),
     copies: s.copies || 1,
+    orientation: s.orientation || 'auto',
     shopId,
   };
 
@@ -838,6 +841,7 @@ app.post('/api/orders/:id/confirm', authenticate, asyncHandler(async (req, res) 
       colorMode: settings.colorMode || 'auto',
       printStyle: settings.printStyle || 'single',
       paperSize: settings.paperSize || 'A4',
+      pagesPerSheet: settings.pagesPerSheet || 1,
       flipDirection: determineFlipDirection(
         file.orientation,
         settings.paperSize || 'A4',
@@ -845,6 +849,7 @@ app.post('/api/orders/:id/confirm', authenticate, asyncHandler(async (req, res) 
         settings.orientation
       ),
       copies: settings.copies || 1,
+      orientation: settings.orientation || 'auto',
       shopId: order.shopId,
     };
 
@@ -2223,7 +2228,19 @@ app.get('/api/agent/jobs', authenticate, requireActiveSubscription, asyncHandler
     orderBy: { id: 'asc' },
   });
 
-  res.json({ success: true, data: jobs, subscription: req.subscription });
+  // Include all print settings needed by the agent
+  const jobsWithSettings = jobs.map(job => ({
+    ...job,
+    paperSize: job.paperSize,
+    printStyle: job.printStyle,
+    pagesPerSheet: job.pagesPerSheet,
+    copies: job.copies,
+    orientation: job.orientation,
+    flipDirection: job.flipDirection,
+    colorMode: job.colorMode,
+  }));
+
+  res.json({ success: true, data: jobsWithSettings, subscription: req.subscription });
 }));
 
 // Get print-ready file for a job

@@ -95,10 +95,10 @@ async function embedImage(doc, filePath) {
 }
 
 // Combines multiple image files into a single PDF with `nUp` pictures per page
-async function createContactSheet(imageFiles, nUp, paperSize, jobId) {
+async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto') {
   const n = nUp || 1;
   const { cols, rows } = imageGrid(n);
-  const dims = paperDims(paperSize);
+  const dims = paperDims(paperSize, orientation);
   const newDoc = await PDFDocument.create();
 
   for (let i = 0; i < imageFiles.length; i += n) {
@@ -278,13 +278,20 @@ function sourceOrientation(pdfDoc) {
   return first.getWidth() > first.getHeight() ? 'landscape' : 'portrait';
 }
 
-function paperDims(paperSize) {
-  switch (paperSize) {
-    case 'A3': return { w: 841.89, h: 1190.55 };
-    case 'Letter': return { w: 612, h: 792 };
-    case 'Legal': return { w: 612, h: 1008 };
-    default: return { w: 595.28, h: 841.89 };
+function paperDims(paperSize, orientation = 'auto') {
+  const dims = (() => {
+    switch (paperSize) {
+      case 'A3': return { w: 841.89, h: 1190.55 };
+      case 'Letter': return { w: 612, h: 792 };
+      case 'Legal': return { w: 612, h: 1008 };
+      default: return { w: 595.28, h: 841.89 };
+    }
+  })();
+
+  if (orientation === 'landscape') {
+    return { w: dims.h, h: dims.w };
   }
+  return dims;
 }
 
 async function applyNUp(pdfDoc, pages, nUp, paperSize) {
@@ -430,7 +437,8 @@ async function processAndDispatchOrder(orderId, prisma) {
             imageFiles,
             printJob.pagesPerSheet || 1,
             printJob.paperSize,
-            printJob.id
+            printJob.id,
+            printJob.orientation
           );
           // Agent will handle printing — just mark as ready
           await prisma.printJob.update({

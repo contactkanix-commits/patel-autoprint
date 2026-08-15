@@ -316,10 +316,11 @@ class PrintAgent extends EventEmitter {
         options.side = 'simplex';
       }
       if (job.paperSize) options.paperSize = job.paperSize;
+      if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
 
       this.log(
         'info',
-        `Sending to printer (${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'})`
+        `Sending to printer (${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}, ${options.orientation || 'auto'})`
       );
       await this.print.print(printPath, options);
       this.log('info', `Print sent for job ${job.id}`);

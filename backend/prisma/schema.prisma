@@ -142,6 +142,7 @@ model PrintJob {
   pagesPerSheet  Int      @default(1)
   flipDirection  String   @default("long-edge")
   copies         Int      @default(1)
+  orientation    String   @default("auto")   // auto, portrait, landscape
   status         String   @default("PENDING") // PENDING, PROCESSING, PRINTING, COMPLETED, FAILED
   assignedPrinter String?
   shopId         String

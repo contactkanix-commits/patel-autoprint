@@ -264,9 +264,10 @@ async function processJob(config, job) {
       options.side = 'simplex';
     }
     if (job.paperSize) options.paperSize = job.paperSize;
+    if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
 
     console.log(`  Printer: ${job.assignedPrinter || 'default'}`);
-    console.log(`  Settings: ${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}`);
+    console.log(`  Settings: ${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}, ${options.orientation || 'auto'}`);
 
     await print.print(printPath, options);
     console.log('  Print sent successfully!');
