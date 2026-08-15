@@ -226,7 +226,7 @@ async function createContactSheetPrintJob(imageFiles, order, shopId, printers, b
   const paperSize = settings.paperSize || 'A4';
 
 const job = {
-    orderId,
+    orderId: order.id,
     fileId: first.id,
     sectionIndex: 0,
     pages: JSON.stringify(imageFiles.map((f) => f.id)), // file IDs as strings

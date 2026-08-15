@@ -26,14 +26,6 @@ const errorHandler = (err, req, res, next) => {
     });
   }
 
-  if (req && (req.query.debug === '1' || req.headers['x-debug'] === '1')) {
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-      code: 'INTERNAL_ERROR',
-      stack: err.stack,
-    });
-  }
   return res.status(500).json({
     success: false,
     message: 'Internal server error',
