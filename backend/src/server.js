@@ -236,7 +236,7 @@ const job = {
     pagesPerSheet: nUp,
     flipDirection: 'long-edge',
     copies,
-    orientation: 'auto',
+    orientation: settings.orientation || 'auto',
     shopId,
   };
 
@@ -1123,11 +1123,17 @@ app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
         breakdown: [{ label: 'See sections below', amount: 0 }],
       });
       grandTotal += fileTotal;
-    } else {
-      const actualPages = countPagesFromRange(s.pageRange, file.pageCount);
-      const colorRatio = file.pageCount > 0 ? file.colorPageCount / file.pageCount : 0;
-      const actualColorPages = Math.round(actualPages * colorRatio);
-      const price = calculatePrice(actualPages, actualColorPages, s, pricingConfig);
+      } else {
+        const actualPages = countPagesFromRange(s.pageRange, file.pageCount);
+        const cm = s.colorMode || 'auto';
+        let actualColorPages;
+        if (cm === 'bw') actualColorPages = 0;
+        else if (cm === 'color') actualColorPages = actualPages;
+        else {
+          const colorRatio = file.pageCount > 0 ? file.colorPageCount / file.pageCount : 0;
+          actualColorPages = Math.round(actualPages * colorRatio);
+        }
+        const price = calculatePrice(actualPages, actualColorPages, s, pricingConfig);
       breakdowns.push({
         fileId: file.id,
         fileName: file.originalName,

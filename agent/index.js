@@ -265,6 +265,7 @@ async function processJob(config, job) {
     }
     if (job.paperSize) options.paperSize = job.paperSize;
     if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
+    if (job.colorMode === 'bw') options.monochrome = true;
 
     console.log(`  Printer: ${job.assignedPrinter || 'default'}`);
     console.log(`  Settings: ${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}, ${options.orientation || 'auto'}`);

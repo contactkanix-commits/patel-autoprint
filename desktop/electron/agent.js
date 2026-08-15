@@ -317,6 +317,7 @@ class PrintAgent extends EventEmitter {
       }
       if (job.paperSize) options.paperSize = job.paperSize;
       if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
+      if (job.colorMode === 'bw') options.monochrome = true;
 
       this.log(
         'info',
