@@ -62,6 +62,30 @@ function setupAutoUpdater() {
   setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
 }
 
+// IPC handlers for manual update check
+ipcMain.handle('app:check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) return { available: false, version: null, downloaded: false };
+    const { updateInfo } = result;
+    return {
+      available: !!updateInfo,
+      version: updateInfo?.version || null,
+      downloaded: false,
+    };
+  } catch (err) {
+    // If no update available, electron-updater throws; treat as no update
+    if (err?.message?.includes('No updates available') || err?.message?.includes('latest')) {
+      return { available: false, version: null, downloaded: false };
+    }
+    throw err;
+  }
+});
+
+ipcMain.handle('app:install-update', async () => {
+  autoUpdater.quitAndInstall();
+});
+
 function credsFile() {
   return path.join(app.getPath('userData'), 'agent-credentials.json');
 }

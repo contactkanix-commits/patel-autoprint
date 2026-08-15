@@ -39,9 +39,11 @@ import {
   CheckCircle,
   Error,
   Refresh,
+  SystemUpdate,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
+const { ipcRenderer } = window.require ? window.require('electron') : { ipcRenderer: null };
 
 const defaultPricing = {
   bwPerPage: 1,
@@ -74,6 +76,35 @@ export default function SettingsPage() {
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [gatewaySaving, setGatewaySaving] = useState(false);
   const [testMode, setTestMode] = useState('test');
+
+  // App Update state
+  const [updateState, setUpdateState] = useState({ checking: false, available: false, version: null, downloaded: false, error: null });
+
+  const checkForUpdates = async () => {
+    setUpdateState(s => ({ ...s, checking: true, error: null }));
+    try {
+      const result = await window.patelApp.updates.check();
+      setUpdateState(s => ({ ...s, checking: false, available: result.available, version: result.version, downloaded: result.downloaded }));
+      if (result.available) {
+        toast.success(`Update available: v${result.version}. Downloading...`);
+      } else if (result.downloaded) {
+        toast.success('Update downloaded. Restart to apply.');
+      } else {
+        toast.success('You are on the latest version.');
+      }
+    } catch (err) {
+      setUpdateState(s => ({ ...s, checking: false, error: err.message }));
+      toast.error(`Update check failed: ${err.message}`);
+    }
+  };
+
+  const installUpdate = async () => {
+    try {
+      await window.patelApp.updates.install();
+    } catch (err) {
+      toast.error(`Install failed: ${err.message}`);
+    }
+  };
   const [razorpayKeyId, setRazorpayKeyId] = useState('');
   const [razorpayKeySecret, setRazorpayKeySecret] = useState('');
   const [razorpayWebhookSecret, setRazorpayWebhookSecret] = useState('');
@@ -392,6 +423,57 @@ export default function SettingsPage() {
               </Typography>
             </Box>
           )}
+        </CardContent>
+      </Card>
+
+      <Card sx={{ maxWidth: 600, mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <SystemUpdate sx={{ color: 'primary.main' }} />
+            <Typography variant="h6" gutterBottom>App Updates</Typography>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Check for and install application updates. The app also checks automatically every 4 hours.
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button
+              variant="contained"
+              startIcon={updateState.checking ? <CircularProgress size={20} /> : <Refresh />}
+              onClick={checkForUpdates}
+              disabled={updateState.checking}
+            >
+              {updateState.checking ? 'Checking...' : 'Check for Updates'}
+            </Button>
+
+            {updateState.downloaded && (
+              <Button
+                variant="contained"
+                color="secondary"
+                startIcon={<SystemUpdate />}
+                onClick={installUpdate}
+              >
+                Restart & Install Update
+              </Button>
+            )}
+
+            {updateState.available && !updateState.downloaded && (
+              <Chip label={`v${updateState.version} available`} color="success" size="small" icon={<SystemUpdate />} />
+            )}
+
+            {updateState.error && (
+              <Alert severity="error" sx={{ mt: 2, maxWidth: 400 }}>
+                {updateState.error}
+              </Alert>
+            )}
+
+            {!updateState.checking && !updateState.available && !updateState.downloaded && !updateState.error && (
+              <Typography variant="body2" color="text.secondary">
+                Last checked: just now — you&apos;re up to date
+              </Typography>
+            )}
+          </Box>
         </CardContent>
       </Card>
 
