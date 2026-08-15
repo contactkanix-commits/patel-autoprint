@@ -252,8 +252,23 @@ function registerIpc() {
 
   ipcMain.handle('whatsapp:logout', () => whatsapp.logout());
 
-  ipcMain.handle('app:check-for-updates', () => {
-    if (!isDev) autoUpdater.checkForUpdates();
+  ipcMain.handle('app:check-for-updates', async () => {
+    if (isDev) return { available: false, version: null, downloaded: false };
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (!result) return { available: false, version: null, downloaded: false };
+      const { updateInfo } = result;
+      return {
+        available: !!updateInfo,
+        version: updateInfo?.version || null,
+        downloaded: false,
+      };
+    } catch (err) {
+      if (err?.message?.includes('No updates available') || err?.message?.includes('latest')) {
+        return { available: false, version: null, downloaded: false };
+      }
+      throw err;
+    }
   });
 
   ipcMain.handle('app:get-update-status', () => lastUpdateStatus);
