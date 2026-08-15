@@ -1,8 +1,8 @@
-version: 1.0.16
+version: 1.0.17
 files:
-  - url: Patel AutoPrint Admin Setup 1.0.16.exe
-    sha512: l2sd8rzzCB0wQAsrzBQ7puBzq17r0yFlVFStClPaS2koguEbnS61hKsr4B+FxIiLg++3Y7yeLOP4kKW19Typ5Q==
-    size: 100894596
-path: Patel AutoPrint Admin Setup 1.0.16.exe
-sha512: l2sd8rzzCB0wQAsrzBQ7puBzq17r0yFlVFStClPaS2koguEbnS61hKsr4B+FxIiLg++3Y7yeLOP4kKW19Typ5Q==
-releaseDate: '2026-08-15T09:30:54.685Z'
+  - url: Patel AutoPrint Admin Setup 1.0.17.exe
+    sha512: Zke2DuG/6HwjeE2lF21rLdz5gDLurCuQEcAcmfEM5x9YYpa4AbbhqiOBBfPjXh1jjM5pgqk20OeAbgDKr9Bquw==
+    size: 100892082
+path: Patel AutoPrint Admin Setup 1.0.17.exe
+sha512: Zke2DuG/6HwjeE2lF21rLdz5gDLurCuQEcAcmfEM5x9YYpa4AbbhqiOBBfPjXh1jjM5pgqk20OeAbgDKr9Bquw==
+releaseDate: '2026-08-15T13:36:35.526Z'
