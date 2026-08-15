@@ -4,55 +4,12 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  // --- Deduplicate shops if multiple exist (fix from old buggy seed) ---
-  const shops = await prisma.shop.findMany({ orderBy: { createdAt: 'asc' } });
-  if (shops.length > 1) {
-    console.log(`Found ${shops.length} shops. Merging into one...`);
-    // Keep the shop with the admin user; fallback to the first shop
-    const adminUser = await prisma.user.findFirst({ where: { email: 'admin@patelautoprint.com' } });
-    const keepShopId = adminUser ? adminUser.shopId : shops[0].id;
-    const removeIds = shops.filter(s => s.id !== keepShopId).map(s => s.id);
-
-    // 1. Move users (skip if email already exists in target shop)
-    const usersToMove = await prisma.user.findMany({ where: { shopId: { in: removeIds } } });
-    for (const u of usersToMove) {
-      const dup = await prisma.user.findFirst({ where: { shopId: keepShopId, email: u.email } });
-      if (!dup) {
-        await prisma.user.update({ where: { id: u.id }, data: { shopId: keepShopId } });
-      } else {
-        await prisma.user.delete({ where: { id: u.id } }); // duplicate user, remove
-      }
-    }
-
-    // 2. Move customers
-    await prisma.customer.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 3. Move printers
-    await prisma.printer.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 4. Move pricing rules
-    await prisma.pricingRule.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 5. Move orders — handle token uniqueness (shopId + token)
-    const maxToken = await prisma.order.findFirst({ where: { shopId: keepShopId }, orderBy: { token: 'desc' } });
-    let nextToken = (maxToken?.token || 0) + 1;
-    for (const sid of removeIds) {
-      const orders = await prisma.order.findMany({ where: { shopId: sid }, orderBy: { token: 'asc' } });
-      for (const o of orders) {
-        await prisma.order.update({ where: { id: o.id }, data: { shopId: keepShopId, token: nextToken++ } });
-      }
-    }
-
-    // 6. Move order files and print jobs (their parent orders are now in keepShopId)
-    await prisma.orderFile.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-    await prisma.printJob.updateMany({ where: { shopId: { in: removeIds } }, data: { shopId: keepShopId } });
-
-    // 7. Delete empty shops
-    await prisma.shop.deleteMany({ where: { id: { in: removeIds } } });
-    console.log(`Merged into shop ${keepShopId}. Removed ${removeIds.length} duplicate(s).`);
-  }
+  // NOTE: We never delete or merge shops here. Shops are user data and must
+  // survive every deploy/restart. (An earlier version merged/delete extra shops
+  // on startup, which wiped shops created in the admin UI — that is removed.)
 
   // --- Ensure super admin exists (always runs, even on already-seeded DB) ---
+  const shops = await prisma.shop.findMany({ orderBy: { createdAt: 'asc' } });
   const superAdminEmail = 'superadmin@patelautoprint.com';
   const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'superadmin123';
   const existingSuperAdmin = await prisma.user.findFirst({ where: { email: superAdminEmail } });

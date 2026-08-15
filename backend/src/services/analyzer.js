@@ -43,6 +43,11 @@ async function analyzePDF(filePath) {
     let firstOrientation = null;
     let hasMixedOrientation = false;
 
+    // Only deep-scan the first N pages for color (getOperatorList is the slow
+    // part); extrapolate the color ratio for the rest so big PDFs don't lag.
+    const MAX_COLOR_SCAN = 12;
+    let scannedColor = 0;
+    let scannedPages = 0;
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
       const viewport = page.getViewport({ scale: 1 });
@@ -55,37 +60,47 @@ async function analyzePDF(filePath) {
         hasMixedOrientation = true;
       }
 
-      const ops = await page.getOperatorList();
       let isColor = false;
-      const fnArray = ops.fnArray;
-      const argsArray = ops.argsArray;
+      let isBlank = false;
+      if (i <= MAX_COLOR_SCAN) {
+        const ops = await page.getOperatorList();
+        const fnArray = ops.fnArray;
+        const argsArray = ops.argsArray;
 
-      for (let j = 0; j < fnArray.length; j++) {
-        const fn = fnArray[j];
-        if (fn === pdfjsLib.OPS.setFillColor || fn === pdfjsLib.OPS.setStrokeColor) {
-          const args = argsArray[j];
-          if (args && args.length >= 4) {
-            if (args[0] > 0 || args[1] > 0 || args[2] > 0) {
+        for (let j = 0; j < fnArray.length; j++) {
+          const fn = fnArray[j];
+          if (fn === pdfjsLib.OPS.setFillColor || fn === pdfjsLib.OPS.setStrokeColor) {
+            const args = argsArray[j];
+            if (args && args.length >= 4) {
+              if (args[0] > 0 || args[1] > 0 || args[2] > 0) {
+                isColor = true;
+                break;
+              }
+            }
+          } else if (fn === pdfjsLib.OPS.setFillRGBColor || fn === pdfjsLib.OPS.setStrokeRGBColor) {
+            const args = argsArray[j];
+            if (args && args.some((v) => v > 0)) {
               isColor = true;
               break;
             }
           }
-        } else if (fn === pdfjsLib.OPS.setFillRGBColor || fn === pdfjsLib.OPS.setStrokeRGBColor) {
-          const args = argsArray[j];
-          if (args && args.some((v) => v > 0)) {
-            isColor = true;
-            break;
-          }
         }
-      }
 
-      const isBlank = fnArray.length < 5;
+        isBlank = fnArray.length < 5;
+        if (isColor) scannedColor++;
+        scannedPages++;
+      }
 
       if (isColor) colorCount++;
       if (isBlank) blankCount++;
       if (isLandscape) landscapeCount++;
 
       pages.push({ pageNumber: i, isColor, isBlank, isLandscape });
+    }
+
+    // Extrapolate color page count from the scanned sample for large documents
+    if (scannedPages > 0 && scannedPages < doc.numPages) {
+      colorCount = Math.round((scannedColor / scannedPages) * doc.numPages);
     }
 
     const orientation = firstOrientation || 'portrait';
