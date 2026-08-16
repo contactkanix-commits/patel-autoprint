@@ -224,6 +224,9 @@ async function createContactSheetPrintJob(imageFiles, order, shopId, printers, b
   const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'bw') === 'color') ? 'color' : 'bw';
   const copies = settings.copies || 1;
   const paperSize = settings.paperSize || 'A4';
+  // Single photo per page: let the generated PDF drive each page's orientation
+  // (landscape photo -> landscape page). Force orientation only for n-Up grids.
+  const orientation = nUp === 1 ? 'auto' : (settings.orientation || 'auto');
 
 const job = {
     orderId: order.id,
@@ -236,7 +239,7 @@ const job = {
     pagesPerSheet: nUp,
     flipDirection: 'long-edge',
     copies,
-    orientation: settings.orientation || 'auto',
+    orientation,
     shopId,
   };
 

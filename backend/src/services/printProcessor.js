@@ -94,35 +94,62 @@ async function embedImage(doc, filePath) {
   throw new Error(`Unsupported image type: ${ext}`);
 }
 
-// Combines multiple image files into a single PDF with `nUp` pictures per page
+// Combines multiple image files into a contact-sheet PDF.
+// - nUp === 1: one image per page, each page oriented to its image (like
+//   Windows "Print picture"), so photos fill the page instead of being tiny.
+// - nUp > 1: a grid laid out using the chosen paper orientation.
 async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto') {
   const n = nUp || 1;
-  const { cols, rows } = imageGrid(n);
-  const dims = paperDims(paperSize, orientation);
   const newDoc = await PDFDocument.create();
+  const baseDims = paperDims(paperSize, 'portrait');
+  const margin = 6; // Small margin to prevent content cutoff
 
-  for (let i = 0; i < imageFiles.length; i += n) {
-    const chunk = imageFiles.slice(i, i + n);
-    const page = newDoc.addPage([dims.w, dims.h]);
-    const cellW = dims.w / cols;
-    const cellH = dims.h / rows;
-    const margin = 6; // Small margin to prevent content cutoff
-
-    for (let j = 0; j < chunk.length; j++) {
-      const col = j % cols;
-      const rowFromTop = Math.floor(j / cols);
+  if (n === 1) {
+    for (const f of imageFiles) {
+      let embedded = null;
       try {
-        const embedded = await embedImage(newDoc, chunk[j].storagePath);
-        const imgW = embedded.width || cellW;
-        const imgH = embedded.height || cellH;
-        const scale = Math.min((cellW - margin * 2) / imgW, (cellH - margin * 2) / imgH);
-        const drawW = imgW * scale;
-        const drawH = imgH * scale;
-        const x = col * cellW + (cellW - drawW) / 2;
-        const y = dims.h - (rowFromTop + 1) * cellH + (cellH - drawH) / 2;
-        page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+        embedded = await embedImage(newDoc, f.storagePath);
       } catch (err) {
-        console.error(`Failed to embed image ${chunk[j].storagePath}:`, err.message);
+        console.error(`Failed to embed image ${f.storagePath}:`, err.message);
+      }
+      const ew = embedded?.width || baseDims.w;
+      const eh = embedded?.height || baseDims.h;
+      const landscapeImg = ew > eh;
+      const pageW = landscapeImg ? baseDims.h : baseDims.w;
+      const pageH = landscapeImg ? baseDims.w : baseDims.h;
+      const page = newDoc.addPage([pageW, pageH]);
+      if (embedded) {
+        const scale = Math.min((pageW - margin * 2) / embedded.width, (pageH - margin * 2) / embedded.height);
+        const drawW = embedded.width * scale;
+        const drawH = embedded.height * scale;
+        page.drawImage(embedded, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
+      }
+    }
+  } else {
+    const { cols, rows } = imageGrid(n);
+    const dims = paperDims(paperSize, orientation);
+    for (let i = 0; i < imageFiles.length; i += n) {
+      const chunk = imageFiles.slice(i, i + n);
+      const page = newDoc.addPage([dims.w, dims.h]);
+      const cellW = dims.w / cols;
+      const cellH = dims.h / rows;
+
+      for (let j = 0; j < chunk.length; j++) {
+        const col = j % cols;
+        const rowFromTop = Math.floor(j / cols);
+        try {
+          const embedded = await embedImage(newDoc, chunk[j].storagePath);
+          const imgW = embedded.width || cellW;
+          const imgH = embedded.height || cellH;
+          const scale = Math.min((cellW - margin * 2) / imgW, (cellH - margin * 2) / imgH);
+          const drawW = imgW * scale;
+          const drawH = imgH * scale;
+          const x = col * cellW + (cellW - drawW) / 2;
+          const y = dims.h - (rowFromTop + 1) * cellH + (cellH - drawH) / 2;
+          page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+        } catch (err) {
+          console.error(`Failed to embed image ${chunk[j].storagePath}:`, err.message);
+        }
       }
     }
   }
