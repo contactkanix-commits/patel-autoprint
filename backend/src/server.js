@@ -1464,16 +1464,28 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
     },
   });
 
-  // If auto-print (cash only), dispatch to printer
+// If auto-print (cash only), dispatch to printer
   if (shouldAutoPrint) {
     const { processAndDispatchOrder } = require('./services/printProcessor');
     await processAndDispatchOrder(order.id, prisma);
+  }
+
+  // Broadcast new jobs to connected agents (real-time notification)
+  const broadcastJobNotification = req.app.get('broadcastJobNotification');
+  if (broadcastJobNotification) {
+    const newJobs = updatedOrder?.printJobs?.filter(j => j.status === 'PRINTING') || [];
+    for (const job of newJobs) {
+      broadcastJobNotification(order.shopId, { id: job.id, orderId: job.orderId, fileId: job.fileId });
+    }
   }
 
   const updatedOrder = await prisma.order.findUnique({
     where: { id },
     include: { files: true, printJobs: true, customer: true },
   });
+
+  res.json({ success: true, data: updatedOrder });
+});
 
   res.json({ success: true, data: updatedOrder });
 }));
@@ -2765,15 +2777,68 @@ const start = async () => {
 
     const server = createServer(app);
 
-    // WebSocket
+    // WebSocket for real-time job notifications
     const wss = new WebSocket.Server({ server });
-    wss.on('connection', (ws) => {
+    const agentConnections = new Map(); // shopId -> Set of WebSocket connections
+
+    wss.on('connection', (ws, req) => {
       console.log('WebSocket client connected');
-      ws.on('close', () => console.log('WebSocket client disconnected'));
+      
+      let authenticatedShopId = null;
+      
+      ws.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data);
+          if (msg.type === 'auth' && msg.token) {
+            // Verify agent token
+            const jwt = require('jsonwebtoken');
+            try {
+              const decoded = jwt.verify(msg.token, process.env.JWT_SECRET || 'secret');
+              if (decoded.shopId) {
+                authenticatedShopId = decoded.shopId;
+                if (!agentConnections.has(authenticatedShopId)) {
+                  agentConnections.set(authenticatedShopId, new Set());
+                }
+                agentConnections.get(authenticatedShopId).add(ws);
+                ws.send(JSON.stringify({ type: 'auth_ok', shopId: authenticatedShopId }));
+                console.log(`Agent authenticated for shop ${authenticatedShopId}`);
+              }
+            } catch (e) {
+              ws.send(JSON.stringify({ type: 'auth_error', message: 'Invalid token' }));
+            }
+          }
+        } catch (e) {
+          console.error('WebSocket message error:', e.message);
+        }
+      });
+      
+      ws.on('close', () => {
+        if (authenticatedShopId && agentConnections.has(authenticatedShopId)) {
+          agentConnections.get(authenticatedShopId).delete(ws);
+          if (agentConnections.get(authenticatedShopId).size === 0) {
+            agentConnections.delete(authenticatedShopId);
+          }
+        }
+        console.log('WebSocket client disconnected');
+      });
     });
 
-    // Make wss available to routes
+    // Broadcast job notification to all agents of a shop
+    function broadcastJobNotification(shopId, jobData) {
+      const connections = agentConnections.get(shopId);
+      if (connections) {
+        const message = JSON.stringify({ type: 'new_job', job: jobData });
+        for (const ws of connections) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+          }
+        }
+      }
+    }
+
+    // Make wss and broadcast available to routes
     app.set('wss', wss);
+    app.set('broadcastJobNotification', broadcastJobNotification);
 
     server.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
