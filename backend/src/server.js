@@ -1449,10 +1449,14 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
           }
         }
       }
-    };
-    
-    // Fire and forget - don't block confirm response
-    ensureDeepAnalysisAndPregen().catch(e => console.error('Background pregen error:', e.message));
+    }
+    } catch (e) {
+      console.error('Background pregen outer error:', e.message);
+    }
+  };
+  
+  // Fire and forget - don't block confirm response
+  ensureDeepAnalysisAndPregen().catch(e => console.error('Background pregen error:', e.message));
 
   await prisma.order.update({
     where: { id },
