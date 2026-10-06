@@ -17,6 +17,7 @@ model Shop {
   slug            String?  @unique
   agentKey        String?  @unique
   settings        Json?
+  tokenCounter    Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

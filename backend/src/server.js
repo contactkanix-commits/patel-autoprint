@@ -73,12 +73,13 @@ function getRazorpayInstance(shop) {
 
 // Helper: get next token for a shop
 async function getNextToken(shopId) {
-  const maxOrder = await prisma.order.findFirst({
-    where: { shopId, token: { not: null } },
-    orderBy: { token: 'desc' },
-    select: { token: true },
+  // Atomic increment - no race condition possible
+  const shop = await prisma.shop.update({
+    where: { id: shopId },
+    data: { tokenCounter: { increment: 1 } },
+    select: { tokenCounter: true },
   });
-  return (maxOrder?.token || 0) + 1;
+  return shop.tokenCounter;
 }
 
 // Helper: load a shop's own pricing rates (fall back to defaults)
