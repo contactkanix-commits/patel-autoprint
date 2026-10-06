@@ -1487,7 +1487,6 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
     include: { files: true, printJobs: true, customer: true },
   });
 
-  res.json({ success: true, data: updatedOrder });
 });
 
   res.json({ success: true, data: updatedOrder });
