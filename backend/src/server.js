@@ -927,10 +927,16 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
 
   const files = [];
 
-  for (const file of req.files) {
-    const fileType = getFileType(file.originalname);
-    const analysis = await analyzeFile(file.path, fileType);
+  // Parallel analysis for all files
+  const analyses = await Promise.all(
+    req.files.map(async (file) => {
+      const fileType = getFileType(file.originalname);
+      const analysis = await analyzeFile(file.path, fileType);
+      return { file, fileType, analysis };
+    })
+  );
 
+  for (const { file, fileType, analysis } of analyses) {
     const defaultSettings = {
       paperSize: analysis.suggestedPaperSize || 'A4',
       orientation: analysis.orientation || 'auto',
