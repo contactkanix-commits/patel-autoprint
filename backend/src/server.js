@@ -1473,6 +1473,11 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
     await processAndDispatchOrder(order.id, prisma);
   }
 
+  const updatedOrder = await prisma.order.findUnique({
+    where: { id },
+    include: { files: true, printJobs: true, customer: true },
+  });
+
   // Broadcast new jobs to connected agents (real-time notification)
   const broadcastJobNotification = req.app.get('broadcastJobNotification');
   if (broadcastJobNotification) {
@@ -1481,13 +1486,6 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
       broadcastJobNotification(order.shopId, { id: job.id, orderId: job.orderId, fileId: job.fileId });
     }
   }
-
-  const updatedOrder = await prisma.order.findUnique({
-    where: { id },
-    include: { files: true, printJobs: true, customer: true },
-  });
-
-});
 
   res.json({ success: true, data: updatedOrder });
 }));
