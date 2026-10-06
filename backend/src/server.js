@@ -1449,7 +1449,6 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
           }
         }
       }
-    }
     } catch (e) {
       console.error('Background pregen outer error:', e.message);
     }
