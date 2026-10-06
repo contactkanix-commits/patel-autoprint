@@ -451,57 +451,13 @@ async function processAndDispatchOrder(orderId, prisma) {
     }
 
     try {
-      // Contact-sheet job: pages holds an array of image file IDs (strings)
-      let parsedPages = null;
-      try { parsedPages = JSON.parse(printJob.pages); } catch { parsedPages = null; }
-
-      if (Array.isArray(parsedPages) && parsedPages.length > 0 && typeof parsedPages[0] === 'string') {
-        const imageFiles = parsedPages
-          .map((id) => order.files.find((f) => f.id === id))
-          .filter(Boolean);
-        if (imageFiles.length > 0) {
-          const printReadyPath = await createContactSheet(
-            imageFiles,
-            printJob.pagesPerSheet || 1,
-            printJob.paperSize,
-            printJob.id,
-            printJob.orientation
-          );
-          // Agent will handle printing — just mark as ready
-          await prisma.printJob.update({
-            where: { id: printJob.id },
-            data: { status: 'PRINTING' },
-          });
-          return { printJobId: printJob.id, success: true, message: 'Queued for agent' };
-        }
-      }
-
-      let pages;
-      try {
-        const parsed = JSON.parse(printJob.pages);
-        if (Array.isArray(parsed)) {
-          pages = parsed;
-        } else {
-          pages = parsePageRange(printJob.pages, file.pageCount);
-        }
-      } catch {
-        pages = parsePageRange(printJob.pages, file.pageCount);
-      }
-
-      const settings = {
-        pagesPerSheet: printJob.pagesPerSheet || 1,
-        paperSize: printJob.paperSize,
-      };
-
-      const printReadyPath = await processFile(file, pages, settings, printJob.id);
-
-      // Agent will handle printing — just mark as ready
+      // Mark job as PRINTING - agent will download original file(s) and generate locally
       await prisma.printJob.update({
         where: { id: printJob.id },
         data: { status: 'PRINTING' },
       });
 
-      return { printJobId: printJob.id, success: true, message: 'Queued for agent' };
+      return { printJobId: printJob.id, success: true, message: 'Queued for agent (local generation)' };
     } catch (err) {
       console.error(`Failed to process print job ${printJob.id}:`, err.message);
       try {
@@ -526,6 +482,7 @@ async function processAndDispatchOrder(orderId, prisma) {
   }
 
   return results;
+}
 }
 
 module.exports = {

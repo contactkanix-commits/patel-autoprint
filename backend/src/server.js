@@ -2259,7 +2259,26 @@ app.get('/api/agent/jobs', authenticate, requireActiveSubscription, asyncHandler
   res.json({ success: true, data: jobsWithSettings, subscription: req.subscription });
 }));
 
-// Get print-ready file for a job
+// Get original file for local generation (agent downloads and processes locally)
+app.get('/api/agent/files/:id/original', authenticate, requireActiveSubscription, asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const file = await prisma.orderFile.findUnique({
+    where: { id },
+    include: { order: true },
+  });
+
+  if (!file) throw new AppError('File not found', 404, 'NOT_FOUND');
+  if (file.order.shopId !== req.user.shopId) throw new AppError('Access denied', 403, 'FORBIDDEN');
+
+  if (!fs.existsSync(file.storagePath)) {
+    throw new AppError('Original file not found', 404, 'FILE_NOT_FOUND');
+  }
+
+  res.sendFile(file.storagePath);
+}));
+
+// Get print-ready file for a job (fallback for pre-generated files)
 app.get('/api/agent/jobs/:id/file', authenticate, requireActiveSubscription, asyncHandler(async (req, res) => {
   const { id } = req.params;
 
