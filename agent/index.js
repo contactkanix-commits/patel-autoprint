@@ -5,8 +5,13 @@ const https = require('https');
 const { spawn } = require('child_process');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 2000;
+const MAX_CONCURRENT_JOBS = 2;
 const CONVERT_SCRIPT = path.join(__dirname, 'convert-office-to-pdf.ps1');
+
+// HTTP agents with keep-alive for connection reuse
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
 
 let print;
 try {
@@ -85,7 +90,6 @@ function ask(question) {
 async function apiRequest(config, method, urlPath, body) {
   const url = new URL(urlPath, config.serverUrl);
   const isHttps = url.protocol === 'https:';
-  const client = isHttps ? https : http;
 
   return new Promise((resolve, reject) => {
     const options = {
@@ -96,13 +100,14 @@ async function apiRequest(config, method, urlPath, body) {
       headers: {
         'Content-Type': 'application/json',
       },
+      agent: isHttps ? httpsAgent : httpAgent,
     };
 
     if (config.token) {
       options.headers['Authorization'] = `Bearer ${config.token}`;
     }
 
-    const req = client.request(options, (res) => {
+    const req = (isHttps ? https : http).request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
@@ -130,7 +135,6 @@ async function apiRequest(config, method, urlPath, body) {
 async function downloadFile(config, urlPath, destPath) {
   const url = new URL(urlPath, config.serverUrl);
   const isHttps = url.protocol === 'https:';
-  const client = isHttps ? https : http;
 
   return new Promise((resolve, reject) => {
     const options = {
@@ -139,13 +143,14 @@ async function downloadFile(config, urlPath, destPath) {
       path: url.pathname + url.search,
       method: 'GET',
       headers: {},
+      agent: isHttps ? httpsAgent : httpAgent,
     };
 
     if (config.token) {
       options.headers['Authorization'] = `Bearer ${config.token}`;
     }
 
-    const req = client.request(options, (res) => {
+    const req = (isHttps ? https : http).request(options, (res) => {
       if (res.statusCode !== 200) {
         let data = '';
         res.on('data', (chunk) => (data += chunk));
@@ -306,6 +311,23 @@ async function setup() {
   }
 }
 
+// Simple concurrency limiter
+async function runWithConcurrency(tasks, limit) {
+  const queue = [...tasks];
+  const running = new Set();
+  
+  while (queue.length > 0 || running.size > 0) {
+    while (queue.length > 0 && running.size < limit) {
+      const task = queue.shift();
+      const promise = task().then(() => running.delete(promise));
+      running.add(promise);
+    }
+    if (running.size > 0) {
+      await Promise.race(running);
+    }
+  }
+}
+
 async function main() {
   if (process.argv.includes('--setup')) {
     await setup();
@@ -322,7 +344,7 @@ async function main() {
   console.log('=== Patel AutoPrint Agent ===');
   console.log(`Server: ${config.serverUrl}`);
   console.log(`Email: ${config.email}`);
-  console.log(`Polling every ${POLL_INTERVAL / 1000}s...\n`);
+  console.log(`Polling every ${POLL_INTERVAL / 1000}s (max ${MAX_CONCURRENT_JOBS} concurrent)...\n`);
 
   // Login
   try {
@@ -337,8 +359,11 @@ async function main() {
   console.log('Waiting for print jobs...\n');
   while (true) {
     const jobs = await pollJobs(config);
-    for (const job of jobs) {
-      await processJob(config, job);
+    if (jobs.length > 0) {
+      await runWithConcurrency(
+        jobs.map((job) => () => processJob(config, job)),
+        MAX_CONCURRENT_JOBS
+      );
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL));
   }
