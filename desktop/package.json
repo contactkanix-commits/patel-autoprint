@@ -13,7 +13,7 @@
     "package": "npm run build && electron-builder",
     "publish:win": "npm run build && electron-builder --publish always"
   },
-  "dependencies": {
+"dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.15.0",
@@ -21,13 +21,15 @@
     "@whiskeysockets/baileys": "^6.6.0",
     "axios": "^1.6.2",
     "electron-updater": "^6.3.9",
+    "pdf-lib": "^1.17.1",
     "pdf-to-printer": "^5.8.0",
     "pino": "^7.11.0",
     "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
-    "react-router-dom": "^6.20.0"
+    "react-router-dom": "^6.20.0",
+    "sharp": "^0.33.2"
   },
   "overrides": {
     "pino": "^7.11.0"
