@@ -17,7 +17,7 @@ require('dotenv').config();
 
 const { AppError, errorHandler, asyncHandler } = require('./middleware/errorHandler');
 const { authenticate, requireRole, requireSuperAdmin } = require('./middleware/auth');
-const { analyzeFile, getFileType, isSupportedFileType } = require('./services/analyzer');
+const { analyzeFile, analyzeFileFast, getFileType, isSupportedFileType } = require('./services/analyzer');
 const { calculatePrice } = require('./services/pricing');
 const { determineFlipDirection } = require('./services/duplex');
 const { discoverPrinters, routeJob } = require('./services/printer');
@@ -927,11 +927,11 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
 
   const files = [];
 
-  // Parallel analysis for all files
+  // Parallel FAST analysis for all files (no color scan - instant response)
   const analyses = await Promise.all(
     req.files.map(async (file) => {
       const fileType = getFileType(file.originalname);
-      const analysis = await analyzeFile(file.path, fileType);
+      const analysis = await analyzeFileFast(file.path, fileType);
       return { file, fileType, analysis };
     })
   );
@@ -956,7 +956,7 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
         fileType,
         size: file.size,
         pageCount: analysis.pageCount,
-        colorPageCount: analysis.colorPageCount,
+        colorPageCount: analysis.colorPageCount || 0,
         orientation: analysis.orientation || 'portrait',
         settings: defaultSettings,
         shopId,
@@ -970,6 +970,26 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
     where: { id: order.id },
     include: { files: true, customer: true },
   });
+
+  // Trigger DEEP analysis in background (non-blocking)
+  // This updates colorPageCount, etc. for accurate pricing later
+  Promise.all(
+    files.map(async ({ orderFile, analysis }) => {
+      if (analysis.analysisComplete) return; // Already complete (fast path)
+      try {
+        const deepAnalysis = await analyzeFile(orderFile.storagePath, orderFile.fileType);
+        await prisma.orderFile.update({
+          where: { id: orderFile.id },
+          data: {
+            colorPageCount: deepAnalysis.colorPageCount,
+            // Keep other fast-analysis fields (pageCount, orientation) as-is
+          },
+        });
+      } catch (e) {
+        console.error('Background deep analysis failed:', e.message);
+      }
+    })
+  ).catch(e => console.error('Background analysis error:', e.message));
 
   res.json({
     success: true,
@@ -1047,6 +1067,36 @@ app.get('/api/guest/orders/:id', asyncHandler(async (req, res) => {
   });
   if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
   res.json({ success: true, data: order });
+}));
+
+// Deep analysis endpoint - triggers full color analysis for accurate pricing
+app.post('/api/guest/orders/:id/analyze', asyncHandler(async (req, res) => {
+  const order = await prisma.order.findUnique({
+    where: { id: req.params.id },
+    include: { files: true },
+  });
+  if (!order) throw new AppError('Order not found', 404, 'ORDER_NOT_FOUND');
+
+  const results = await Promise.all(
+    order.files.map(async (file) => {
+      if (file.colorPageCount === 0 && file.fileType === 'pdf' && file.pageCount > 0) {
+        try {
+          const deepAnalysis = await analyzeFile(file.storagePath, file.fileType);
+          await prisma.orderFile.update({
+            where: { id: file.id },
+            data: { colorPageCount: deepAnalysis.colorPageCount },
+          });
+          return { fileId: file.id, colorPageCount: deepAnalysis.colorPageCount };
+        } catch (e) {
+          console.warn(`Deep analysis failed for ${file.id}:`, e.message);
+          return { fileId: file.id, error: e.message };
+        }
+      }
+      return { fileId: file.id, colorPageCount: file.colorPageCount };
+    })
+  );
+
+  res.json({ success: true, data: results });
 }));
 
 app.get('/api/guest/orders/:id/price', asyncHandler(async (req, res) => {
@@ -1358,6 +1408,51 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
   const initialStatus = shouldAutoPrint ? 'APPROVED' : 'PENDING';
   const initialApprovedAt = shouldAutoPrint ? new Date() : null;
   const initialPaymentStatus = shouldAutoPrint ? 'PAID' : 'UNPAID';
+
+  // Ensure deep analysis is complete & pre-generate print-ready files for PDF jobs (n-up, page ranges)
+  // This runs in background so confirm response is fast
+  const ensureDeepAnalysisAndPregen = async () => {
+    try {
+      // 1. Ensure deep analysis for files that need it
+      for (const file of order.files) {
+        if (file.colorPageCount === 0 && file.fileType === 'pdf' && file.pageCount > 0) {
+          try {
+            const deepAnalysis = await analyzeFile(file.storagePath, file.fileType);
+            await prisma.orderFile.update({
+              where: { id: file.id },
+              data: { colorPageCount: deepAnalysis.colorPageCount },
+            });
+          } catch (e) {
+            console.warn(`Deep analysis failed for ${file.id}:`, e.message);
+          }
+        }
+      }
+
+      // 2. Pre-generate print-ready files for PDF jobs that need processing (n-up, page ranges)
+      for (const file of order.files) {
+        if (file.fileType === 'pdf') {
+          const settings = file.settings || {};
+          const pagesPerSheet = settings.pagesPerSheet || 1;
+          let parsedPages = null;
+          try { parsedPages = JSON.parse(settings.pageRange || 'all'); } catch {}
+          const pageRange = Array.isArray(parsedPages) ? parsedPages : null;
+          
+          const needsProcessing = pagesPerSheet > 1 || (pageRange && pageRange.length > 0);
+          if (needsProcessing) {
+            try {
+              const processFile = require('./services/printProcessor').processFile;
+              await processFile(file, pageRange, settings, `pregen-${file.id}`);
+              console.log(`Pre-generated print-ready file for ${file.id}`);
+            } catch (e) {
+              console.warn(`Pre-generation failed for ${file.id}:`, e.message);
+            }
+          }
+        }
+      }
+    };
+    
+    // Fire and forget - don't block confirm response
+    ensureDeepAnalysisAndPregen().catch(e => console.error('Background pregen error:', e.message));
 
   await prisma.order.update({
     where: { id },
