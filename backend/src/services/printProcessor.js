@@ -483,7 +483,6 @@ async function processAndDispatchOrder(orderId, prisma) {
 
   return results;
 }
-}
 
 module.exports = {
   processOrder,
