@@ -6,8 +6,13 @@ const https = require('https');
 const { spawn } = require('child_process');
 const { app } = require('electron');
 
-const POLL_INTERVAL = 5000;
+const POLL_INTERVAL = 2000;
+const MAX_CONCURRENT_JOBS = 2;
 const MAX_LOG = 300;
+
+// HTTP agents with keep-alive for connection reuse
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
 
 // Sniff the actual file type from magic bytes. The server may serve a PDF for
 // contact-sheet jobs even though job.file.fileType says jpeg/png, and it serves
@@ -129,11 +134,9 @@ class PrintAgent extends EventEmitter {
       fs.mkdirSync(this.cacheDir, { recursive: true });
     }
   }
-
-  apiRequest(method, urlPath, body, { binary = false } = {}) {
+apiRequest(method, urlPath, body, { binary = false } = {}) {
     const url = new URL(urlPath, this.credentials.apiUrl);
     const isHttps = url.protocol === 'https:';
-    const client = isHttps ? https : http;
 
     return new Promise((resolve, reject) => {
       const headers = { 'Content-Type': 'application/json' };
@@ -141,13 +144,14 @@ class PrintAgent extends EventEmitter {
         headers.Authorization = `Bearer ${this.credentials.token}`;
       }
 
-      const req = client.request(
+      const req = (isHttps ? https : http).request(
         {
           method,
           hostname: url.hostname,
           port: url.port || (isHttps ? 443 : 80),
           path: url.pathname + url.search,
           headers,
+          agent: isHttps ? httpsAgent : httpAgent,
         },
         (res) => {
           if (binary) {
@@ -174,6 +178,7 @@ class PrintAgent extends EventEmitter {
             } catch {
               parsed = { success: false, message: data };
             }
+
             if (res.statusCode >= 400) {
               const err = new Error(parsed.message || `HTTP ${res.statusCode}`);
               err.status = res.statusCode;
@@ -211,6 +216,23 @@ class PrintAgent extends EventEmitter {
     }
   }
 
+  // Simple concurrency limiter
+  async runWithConcurrency(tasks, limit) {
+    const queue = [...tasks];
+    const running = new Set();
+
+    while (queue.length > 0 || running.size > 0) {
+      while (queue.length > 0 && running.size < limit) {
+        const task = queue.shift();
+        const promise = task().then(() => running.delete(promise));
+        running.add(promise);
+      }
+      if (running.size > 0) {
+        await Promise.race(running);
+      }
+    }
+  }
+
   async pollOnce() {
     if (!this.credentials) return;
     if (this.polling) return;
@@ -222,9 +244,11 @@ class PrintAgent extends EventEmitter {
       if (!result.success) throw new Error(result.message || 'Poll failed');
 
       const jobs = result.data || [];
-      for (const job of jobs) {
-        if (!this.running) break;
-        await this.processJob(job);
+      if (jobs.length > 0) {
+        await this.runWithConcurrency(
+          jobs.map((job) => () => this.processJob(job)),
+          MAX_CONCURRENT_JOBS
+        );
       }
     } catch (e) {
       this.state.lastError = e.message;
@@ -353,7 +377,7 @@ class PrintAgent extends EventEmitter {
     if (this.running) return;
     this.running = true;
     this.state.status = 'running';
-    this.log('info', `Agent started (polling every ${POLL_INTERVAL / 1000}s)`);
+    this.log('info', `Agent started (polling every ${POLL_INTERVAL / 1000}s, max ${MAX_CONCURRENT_JOBS} concurrent)`);
     this.pollOnce();
     this.pollTimer = setInterval(() => this.pollOnce(), POLL_INTERVAL);
     this.emit('status', this.snapshot());
@@ -372,4 +396,4 @@ class PrintAgent extends EventEmitter {
   }
 }
 
-module.exports = { PrintAgent, POLL_INTERVAL };
+module.exports = { PrintAgent, POLL_INTERVAL, MAX_CONCURRENT_JOBS };
