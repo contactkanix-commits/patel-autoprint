@@ -386,4 +386,4 @@ function getFallbackAnalysis() {
   };
 }
 
-module.exports = { analyzeFile, getFileType, isSupportedFileType, FILE_TYPES };
+module.exports = { analyzeFile, analyzeFileFast, getFileType, isSupportedFileType, FILE_TYPES };
