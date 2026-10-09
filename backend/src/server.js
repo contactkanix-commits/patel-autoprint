@@ -944,7 +944,7 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
       printStyle: 'single',
       copies: 1,
       pageRange: 'all',
-      pagesPerSheet: 1,
+      // pagesPerSheet: 1,  // Removed hardcoded - determined by shop settings or user selection
       sections: [],
     };
 
