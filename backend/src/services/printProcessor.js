@@ -69,12 +69,13 @@ async function convertOfficeToPdf(filePath) {
   });
 }
 
-function imageGrid(nUp) {
+function imageGrid(nUp, orientation = 'landscape') {
+  const portrait = orientation === 'portrait';
   switch (nUp) {
     case 2: return { cols: 2, rows: 1 };
     case 4: return { cols: 2, rows: 2 };
-    case 6: return { cols: 3, rows: 2 };
-    case 8: return { cols: 4, rows: 2 };
+    case 6: return portrait ? { cols: 2, rows: 3 } : { cols: 3, rows: 2 };
+    case 8: return portrait ? { cols: 2, rows: 4 } : { cols: 4, rows: 2 };
     case 9: return { cols: 3, rows: 3 };
     case 16: return { cols: 4, rows: 4 };
     default: return { cols: 1, rows: 1 };
@@ -126,8 +127,14 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       }
     }
   } else {
-    const { cols, rows } = imageGrid(n);
-    const dims = paperDims(paperSize, orientation);
+    // n-Up: auto orientation prints landscape (grid cells ~square, photos fill
+    // the A4 like a manual print); explicit portrait/landscape is respected.
+    const sheetOrient =
+      orientation === 'portrait' || orientation === 'landscape'
+        ? orientation
+        : 'landscape';
+    const { cols, rows } = imageGrid(n, sheetOrient);
+    const dims = paperDims(paperSize, sheetOrient);
     for (let i = 0; i < imageFiles.length; i += n) {
       const chunk = imageFiles.slice(i, i + n);
       const page = newDoc.addPage([dims.w, dims.h]);

@@ -376,10 +376,13 @@ function fileUrl(file) {
   return `/uploads/${file.storagePath.split(/[\\/]/).pop()}`;
 }
 
-function gridColumnsFor(pps) {
+function gridColumnsFor(pps, portrait = true) {
   if (pps >= 16) return 4;
   if (pps >= 9) return 3;
+  if (pps === 8) return portrait ? 2 : 4;
+  if (pps === 6) return portrait ? 2 : 3;
   if (pps >= 4) return 2;
+  if (pps === 2) return 2;
   return 1;
 }
 
@@ -654,7 +657,14 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const copies = settings.copies || 1;
   const colorMode = settings.colorMode || 'bw';
   const pageCount = file?.pageCount || 1;
-  const portrait = settings.orientation !== 'landscape';
+  // Auto orientation: n-up image sheets print landscape (matches generator);
+  // explicit portrait/landscape is respected; everything else stays portrait.
+  const portrait =
+    settings.orientation === 'landscape'
+      ? false
+      : settings.orientation === 'portrait'
+        ? true
+        : !((allImages || isImage) && pps > 1);
 
   const imageDims = useImageDims(allImages ? imageUrls : []);
 
@@ -666,7 +676,7 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const sheets = allImages
     ? Math.max(1, Math.ceil((totalImages || 1) / pps))
     : Math.max(1, Math.ceil(pageCount / pps));
-  const cols = gridColumnsFor(pps);
+  const cols = gridColumnsFor(pps, portrait);
   const totalPages = sheets * copies;
   const rows = Math.max(1, Math.ceil(cells / cols));
   const pageW = portrait ? 210 : 297;
