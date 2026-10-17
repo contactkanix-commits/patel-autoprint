@@ -2386,7 +2386,28 @@ app.get('/api/agent/files/:id/original', authenticate, requireActiveSubscription
     throw new AppError('Original file not found', 404, 'FILE_NOT_FOUND');
   }
 
-  res.sendFile(file.storagePath);
+  // Agents embed images locally via pdf-lib (jpg/png only). Convert webp to
+  // png once, cache next to the original, and serve the png instead.
+  let servePath = file.storagePath;
+  try {
+    const fd = fs.openSync(file.storagePath, 'r');
+    const buf = Buffer.alloc(12);
+    fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    const isWebp = buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP';
+    if (isWebp) {
+      const pngPath = `${file.storagePath}.png`;
+      if (!fs.existsSync(pngPath)) {
+        const sharp = require('sharp');
+        await sharp(file.storagePath).png().toFile(pngPath);
+      }
+      servePath = pngPath;
+    }
+  } catch (e) {
+    console.warn(`webp conversion failed for ${file.id}, serving original: ${e.message}`);
+  }
+
+  res.sendFile(servePath);
 }));
 
 // Get print-ready file for a job (fallback for pre-generated files)

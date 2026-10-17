@@ -1,10 +1,12 @@
 const { EventEmitter } = require('events');
 const fs = require('fs');
+const fsPromises = require('fs/promises');
 const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
 const { app } = require('electron');
+const { PDFDocument } = require('pdf-lib');
 
 const POLL_INTERVAL = 2000;
 const MAX_CONCURRENT_JOBS = 2;
@@ -77,6 +79,215 @@ function convertOfficeToPdf(inputPath, outputPdf) {
     });
     child.on('error', reject);
   });
+}
+
+function imageGrid(nUp) {
+  switch (nUp) {
+    case 2: return { cols: 2, rows: 1 };
+    case 4: return { cols: 2, rows: 2 };
+    case 6: return { cols: 3, rows: 2 };
+    case 8: return { cols: 4, rows: 2 };
+    case 9: return { cols: 3, rows: 3 };
+    case 16: return { cols: 4, rows: 4 };
+    default: return { cols: 1, rows: 1 };
+  }
+}
+
+function paperDims(paperSize, orientation = 'auto') {
+  const dims = (() => {
+    switch (paperSize) {
+      case 'A3': return { w: 841.89, h: 1190.55 };
+      case 'Letter': return { w: 612, h: 792 };
+      case 'Legal': return { w: 612, h: 1008 };
+      default: return { w: 595.28, h: 841.89 };
+    }
+  })();
+  if (orientation === 'landscape') return { w: dims.h, h: dims.w };
+  return dims;
+}
+
+function sourceOrientation(pdfDoc) {
+  const first = pdfDoc.getPage(0);
+  return first.getWidth() > first.getHeight() ? 'landscape' : 'portrait';
+}
+
+async function embedImage(doc, filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const data = await fsPromises.readFile(filePath);
+  if (ext === '.jpg' || ext === '.jpeg') return doc.embedJpg(data);
+  if (ext === '.png') return doc.embedPng(data);
+  throw new Error(`Unsupported image type: ${ext} (webp is converted to png server-side)`);
+}
+
+async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto') {
+  const n = nUp || 1;
+  const newDoc = await PDFDocument.create();
+  const baseDims = paperDims(paperSize, 'portrait');
+  const margin = 6;
+
+  if (n === 1) {
+    for (const f of imageFiles) {
+      let embedded = null;
+      try { embedded = await embedImage(newDoc, f.path); } catch (err) {
+        console.error(`Failed to embed image ${f.path}:`, err.message);
+      }
+      const ew = embedded?.width || baseDims.w;
+      const eh = embedded?.height || baseDims.h;
+      const landscapeImg = ew > eh;
+      const pageW = landscapeImg ? baseDims.h : baseDims.w;
+      const pageH = landscapeImg ? baseDims.w : baseDims.h;
+      const page = newDoc.addPage([pageW, pageH]);
+      if (embedded) {
+        const scale = Math.min((pageW - margin * 2) / embedded.width, (pageH - margin * 2) / embedded.height);
+        const drawW = embedded.width * scale;
+        const drawH = embedded.height * scale;
+        page.drawImage(embedded, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
+      }
+    }
+  } else {
+    const { cols, rows } = imageGrid(n);
+    const dims = paperDims(paperSize, orientation);
+    for (let i = 0; i < imageFiles.length; i += n) {
+      const chunk = imageFiles.slice(i, i + n);
+      const page = newDoc.addPage([dims.w, dims.h]);
+      const cellW = dims.w / cols;
+      const cellH = dims.h / rows;
+      for (let j = 0; j < chunk.length; j++) {
+        const col = j % cols;
+        const rowFromTop = Math.floor(j / cols);
+        try {
+          const embedded = await embedImage(newDoc, chunk[j].path);
+          const imgW = embedded.width || cellW;
+          const imgH = embedded.height || cellH;
+          const scale = Math.min((cellW - margin * 2) / imgW, (cellH - margin * 2) / imgH);
+          const drawW = imgW * scale;
+          const drawH = imgH * scale;
+          const x = col * cellW + (cellW - drawW) / 2;
+          const y = dims.h - (rowFromTop + 1) * cellH + (cellH - drawH) / 2;
+          page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+        } catch (err) {
+          console.error(`Failed to embed image ${chunk[j].path}:`, err.message);
+        }
+      }
+    }
+  }
+
+  const bytes = await newDoc.save();
+  const dir = path.join(path.dirname(imageFiles[0].path), 'print-ready');
+  await fsPromises.mkdir(dir, { recursive: true });
+  const outPath = path.join(dir, `${jobId || 'contact'}_contact.pdf`);
+  await fsPromises.writeFile(outPath, bytes);
+  return outPath;
+}
+
+async function applyNUp(pdfDoc, pages, nUp, paperSize) {
+  const newDoc = await PDFDocument.create();
+  const srcOrient = sourceOrientation(pdfDoc);
+  const dims = paperDims(paperSize || 'A4');
+
+  let cols, rows;
+  if (srcOrient === 'landscape') {
+    switch (nUp) {
+      case 2: cols = 1; rows = 2; break;
+      case 4: cols = 2; rows = 2; break;
+      case 6: cols = 3; rows = 2; break;
+      case 8: cols = 4; rows = 2; break;
+      case 9: cols = 3; rows = 3; break;
+      case 16: cols = 4; rows = 4; break;
+      default: cols = 1; rows = 1;
+    }
+  } else {
+    switch (nUp) {
+      case 2: cols = 2; rows = 1; break;
+      case 4: cols = 2; rows = 2; break;
+      case 6: cols = 2; rows = 3; break;
+      case 8: cols = 2; rows = 4; break;
+      case 9: cols = 3; rows = 3; break;
+      case 16: cols = 4; rows = 4; break;
+      default: cols = 1; rows = 1;
+    }
+  }
+
+  const pageLandscape = nUp === 2 ? srcOrient !== 'landscape' : srcOrient === 'landscape';
+  const pageW = pageLandscape ? Math.max(dims.w, dims.h) : Math.min(dims.w, dims.h);
+  const pageH = pageLandscape ? Math.min(dims.w, dims.h) : Math.max(dims.w, dims.h);
+
+  for (let i = 0; i < pages.length; i += nUp) {
+    const page = newDoc.addPage([pageW, pageH]);
+    for (let j = 0; j < nUp && i + j < pages.length; j++) {
+      const col = j % cols;
+      const row = Math.floor(j / cols);
+      const cellW = page.getWidth() / cols;
+      const cellH = page.getHeight() / rows;
+      const x = col * cellW;
+      const y = page.getHeight() - (row + 1) * cellH;
+      try {
+        const [embeddedPage] = await newDoc.embedPdf(pdfDoc, [pages[i + j]]);
+        const scale = Math.min(cellW / embeddedPage.width, cellH / embeddedPage.height);
+        const drawW = embeddedPage.width * scale;
+        const drawH = embeddedPage.height * scale;
+        page.drawPage(embeddedPage, {
+          x: x + (cellW - drawW) / 2,
+          y: y + (cellH - drawH) / 2,
+          width: drawW,
+          height: drawH,
+        });
+      } catch (err) {
+        console.error(`Failed to embed page ${pages[i + j]}:`, err);
+      }
+    }
+  }
+  return newDoc;
+}
+
+async function extractPages(pdfDoc, pages) {
+  const newDoc = await PDFDocument.create();
+  const copiedPages = await newDoc.copyPages(pdfDoc, pages);
+  copiedPages.forEach((page) => newDoc.addPage(page));
+  return newDoc;
+}
+
+function parsePageRange(pageRange, totalPages) {
+  if (!pageRange || pageRange === 'all') {
+    return Array.from({ length: totalPages }, (_, i) => i);
+  }
+  const pages = [];
+  const parts = pageRange.split(',');
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.includes('-')) {
+      const [start, end] = trimmed.split('-').map(Number);
+      for (let i = start; i <= Math.min(end, totalPages); i++) pages.push(i - 1);
+    } else {
+      const pageNum = parseInt(trimmed);
+      if (pageNum >= 1 && pageNum <= totalPages) pages.push(pageNum - 1);
+    }
+  }
+  return [...new Set(pages)].sort((a, b) => a - b);
+}
+
+async function processPDF(filePath, pageRange, settings, jobId) {
+  const pagesPerSheet = settings.pagesPerSheet || 1;
+  const pdfBuffer = await fsPromises.readFile(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBuffer);
+  const pages = pageRange || Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i);
+  const isAllPages = pages.length === pdfDoc.getPageCount() && pages.every((p, i) => p === i);
+  if (isAllPages && pagesPerSheet <= 1) return filePath;
+
+  let processedDoc;
+  if (pagesPerSheet > 1) {
+    processedDoc = await applyNUp(pdfDoc, pages, pagesPerSheet, settings.paperSize);
+  } else {
+    processedDoc = await extractPages(pdfDoc, pages);
+  }
+
+  const printReadyBytes = await processedDoc.save();
+  const dir = path.join(path.dirname(filePath), 'print-ready');
+  await fsPromises.mkdir(dir, { recursive: true });
+  const suffix = jobId || path.basename(filePath, path.extname(filePath));
+  const printReadyPath = path.join(dir, `${suffix}_printready.pdf`);
+  await fsPromises.writeFile(printReadyPath, printReadyBytes);
+  return printReadyPath;
 }
 
 class PrintAgent extends EventEmitter {
@@ -208,6 +419,13 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
     fs.writeFileSync(destPath, buffer);
   }
 
+  async downloadOriginalFile(fileId, destPath) {
+    const buffer = await this.apiRequest('GET', `/api/agent/files/${fileId}/original`, null, {
+      binary: true,
+    });
+    fs.writeFileSync(destPath, buffer);
+  }
+
   async reportStatus(jobId, status, message) {
     try {
       await this.apiRequest('PUT', `/api/agent/jobs/${jobId}/status`, { status, message });
@@ -267,71 +485,114 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
     this.state.processed += 1;
     this.log(
       'info',
-      `Processing job ${job.id} (Order #${job.order?.token || 'N/A'} | ${job.copies || 1} copy | printer ${job.assignedPrinter || 'default'})`
+      `Processing job ${job.id} (Order #${job.order?.token || 'N/A'} | ${job.pagesPerSheet || 1}-up | ${job.copies || 1} copy | printer ${job.assignedPrinter || 'default'})`
     );
     this.emit('status', this.snapshot());
 
     this.ensureCacheDir();
-    const rawPath = path.join(this.cacheDir, `${job.id}.download`);
+    const cleanupPaths = [];
 
     try {
-      await this.downloadFile(job.id, rawPath);
-      this.log('info', `Downloaded print-ready file for job ${job.id}`);
-    } catch (e) {
-      this.state.failed += 1;
-      this.state.current = null;
-      this.log('error', `Download failed for job ${job.id}: ${e.message}`);
-      await this.reportStatus(job.id, 'FAILED', e.message);
-      this.emit('status', this.snapshot());
-      return;
-    }
+      // Detect contact sheet jobs: pages is a JSON array of string file IDs
+      let parsedPages = null;
+      try { parsedPages = JSON.parse(job.pages); } catch { parsedPages = null; }
+      const isContactSheet = Array.isArray(parsedPages) && parsedPages.length > 0 && typeof parsedPages[0] === 'string';
 
-    // Sniff the real file type (a contact-sheet job's fileType is jpeg but the
-    // served file is a PDF, and office files come through as originals).
-    const { type, ext } = classifyFile(rawPath);
-    const filePath = path.join(this.cacheDir, `${job.id}.${ext}`);
-    if (filePath !== rawPath) {
-      try {
-        fs.renameSync(rawPath, filePath);
-      } catch {
-        fs.copyFileSync(rawPath, filePath);
-        fs.unlinkSync(rawPath);
+      let printPath;
+
+      if (isContactSheet) {
+        // CONTACT SHEET: Download all original images and generate locally
+        this.log('info', `Generating contact sheet (${parsedPages.length} images, ${job.pagesPerSheet || 1}-up)...`);
+        const imageFiles = [];
+        for (const fileId of parsedPages) {
+          const destPath = path.join(this.cacheDir, `${fileId}.download`);
+          try {
+            await this.downloadOriginalFile(fileId, destPath);
+            const { ext } = classifyFile(destPath);
+            const finalPath = path.join(this.cacheDir, `${fileId}.${ext}`);
+            if (finalPath !== destPath) {
+              try { fs.renameSync(destPath, finalPath); } catch { fs.copyFileSync(destPath, finalPath); fs.unlinkSync(destPath); }
+            }
+            imageFiles.push({ path: finalPath, id: fileId });
+            cleanupPaths.push(finalPath);
+          } catch (e) {
+            this.log('error', `Failed to download image ${fileId}: ${e.message}`);
+          }
+        }
+
+        if (imageFiles.length === 0) throw new Error('No images downloaded for contact sheet');
+
+        const contactSheetPath = await createContactSheet(
+          imageFiles,
+          job.pagesPerSheet || 1,
+          job.paperSize || 'A4',
+          job.id,
+          job.orientation || 'auto'
+        );
+        printPath = contactSheetPath;
+        cleanupPaths.push(contactSheetPath);
+        this.log('info', `Contact sheet generated: ${path.basename(contactSheetPath)}`);
+
+      } else {
+        // PDF/office JOB: Download original file
+        const fileId = job.file?.id;
+        if (!fileId) throw new Error('No file ID in job');
+
+        const rawPath = path.join(this.cacheDir, `${job.id}.download`);
+        try {
+          await this.downloadOriginalFile(fileId, rawPath);
+          this.log('info', `Downloaded original file for job ${job.id}`);
+        } catch (e) {
+          // Fallback: try print-ready endpoint
+          this.log('warn', `Original download failed, trying print-ready: ${e.message}`);
+          await this.downloadFile(job.id, rawPath);
+        }
+
+        const { type, ext } = classifyFile(rawPath);
+        const filePath = path.join(this.cacheDir, `${job.id}.${ext}`);
+        if (filePath !== rawPath) {
+          try { fs.renameSync(rawPath, filePath); } catch { fs.copyFileSync(rawPath, filePath); fs.unlinkSync(rawPath); }
+        }
+        cleanupPaths.push(filePath);
+        printPath = filePath;
+
+        // Office files: convert to PDF
+        if (type === 'office') {
+          const pdfPath = path.join(this.cacheDir, `${job.id}.pdf`);
+          this.log('info', `Converting office file to PDF for job ${job.id}`);
+          await convertOfficeToPdf(filePath, pdfPath);
+          printPath = pdfPath;
+          cleanupPaths.push(pdfPath);
+          this.log('info', `Converted to PDF for job ${job.id}`);
+        }
+
+        // PDF processing: n-up or page range extraction
+        const pagesPerSheet = job.pagesPerSheet || 1;
+        let pdfPageRange = null;
+        try { pdfPageRange = JSON.parse(job.pages); } catch { pdfPageRange = null; }
+        const pageRange = Array.isArray(pdfPageRange) && pdfPageRange.length > 0 && typeof pdfPageRange[0] === 'number' ? pdfPageRange : null;
+
+        const needsProcessing = pagesPerSheet > 1 || (pageRange && pageRange.length > 0);
+        if (needsProcessing && type === 'pdf') {
+          const settings = {
+            pagesPerSheet: job.pagesPerSheet || 1,
+            paperSize: job.paperSize || 'A4',
+          };
+          this.log('info', `Processing PDF (${pagesPerSheet}-up${pageRange ? ', page range' : ''})...`);
+          printPath = await processPDF(filePath, pageRange, settings, job.id);
+          cleanupPaths.push(printPath);
+        }
       }
-    }
 
-    // Office files are served as originals (server can't convert on Linux);
-    // convert to PDF locally so the print job prints correctly.
-    let printPath = filePath;
-    if (type === 'office') {
-      try {
-        const pdfPath = path.join(this.cacheDir, `${job.id}.pdf`);
-        this.log('info', `Converting office file to PDF for job ${job.id}`);
-        await convertOfficeToPdf(filePath, pdfPath);
-        printPath = pdfPath;
-        this.log('info', `Converted to PDF for job ${job.id}`);
-      } catch (e) {
-        this.state.failed += 1;
+      if (!this.print) {
+        this.log('warn', `[SIMULATED] Printing job ${job.id} (pdf-to-printer unavailable)`);
+        await this.reportStatus(job.id, 'COMPLETED');
+        this.state.completed += 1;
         this.state.current = null;
-        this.log('error', `Office conversion failed for job ${job.id}: ${e.message}`);
-        await this.reportStatus(job.id, 'FAILED', e.message);
         this.emit('status', this.snapshot());
         return;
       }
-    }
 
-    if (!this.print) {
-      this.log('warn', `[SIMULATED] Printing job ${job.id} (pdf-to-printer unavailable)`);
-      await this.reportStatus(job.id, 'COMPLETED');
-      this.state.completed += 1;
-      this.state.current = null;
-      try {
-        fs.unlinkSync(filePath);
-      } catch {}
-      this.emit('status', this.snapshot());
-      return;
-    }
-
-    try {
       const options = { printer: job.assignedPrinter, silent: true };
       if (job.copies && job.copies > 1) options.copies = job.copies;
       if (job.printStyle === 'duplex') {
@@ -353,17 +614,12 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
       this.state.completed += 1;
     } catch (e) {
       this.state.failed += 1;
-      this.log('error', `Print failed for job ${job.id}: ${e.message}`);
+      this.log('error', `Job ${job.id} failed: ${e.message}`);
       await this.reportStatus(job.id, 'FAILED', e.message);
     } finally {
       this.state.current = null;
-      try {
-        fs.unlinkSync(filePath);
-      } catch {}
-      if (printPath !== filePath) {
-        try {
-          fs.unlinkSync(printPath);
-        } catch {}
+      for (const p of cleanupPaths) {
+        try { fs.unlinkSync(p); } catch {}
       }
       this.emit('status', this.snapshot());
     }

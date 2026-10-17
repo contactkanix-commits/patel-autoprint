@@ -68,9 +68,6 @@ function convertOfficeToPdf(inputPath, outputPdf) {
   });
 }
 
-}
-}
-
 function imageGrid(nUp) {
   switch (nUp) {
     case 2: return { cols: 2, rows: 1 };
@@ -181,39 +178,6 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   return outPath;
 }
 
-function imageGrid(nUp) {
-  switch (nUp) {
-    case 2: return { cols: 2, rows: 1 };
-    case 4: return { cols: 2, rows: 2 };
-    case 6: return { cols: 3, rows: 2 };
-    case 8: return { cols: 4, rows: 2 };
-    case 9: return { cols: 3, rows: 3 };
-    case 16: return { cols: 4, rows: 4 };
-    default: return { cols: 1, rows: 1 };
-  }
-}
-
-function paperDims(paperSize, orientation = 'auto') {
-  const dims = (() => {
-    switch (paperSize) {
-      case 'A3': return { w: 841.89, h: 1190.55 };
-      case 'Letter': return { w: 612, h: 792 };
-      case 'Legal': return { w: 612, h: 1008 };
-      default: return { w: 595.28, h: 841.89 };
-    }
-  })();
-
-  if (orientation === 'landscape') {
-    return { w: dims.h, h: dims.w };
-  }
-  return dims;
-}
-
-function sourceOrientation(pdfDoc) {
-  const first = pdfDoc.getPage(0);
-  return first.getWidth() > first.getHeight() ? 'landscape' : 'portrait';
-}
-
 async function applyNUp(pdfDoc, pages, nUp, paperSize) {
   const newDoc = await PDFDocument.create();
   const srcOrient = sourceOrientation(pdfDoc);
@@ -312,11 +276,9 @@ function parsePageRange(pageRange, totalPages) {
 
 async function processPDF(filePath, pageRange, settings, jobId) {
   const pagesPerSheet = settings.pagesPerSheet || 1;
-  const pages = pageRange || null;
 
   const pdfBuffer = await fsPromises.readFile(filePath);
   const pdfDoc = await PDFDocument.load(pdfBuffer);
-  const pageCount = pdfDoc.getPageCount();
 
   const pages = pageRange || Array.from({ length: pdfDoc.getPageCount() }, (_, i) => i);
 
@@ -342,39 +304,6 @@ async function processPDF(filePath, pageRange, settings, jobId) {
   await fsPromises.writeFile(printReadyPath, printReadyBytes);
 
   return printReadyPath;
-}
-
-async function extractPages(pdfDoc, pages) {
-  const newDoc = await PDFDocument.create();
-  const copiedPages = await newDoc.copyPages(pdfDoc, pages);
-  copiedPages.forEach((page) => newDoc.addPage(page));
-  return newDoc;
-}
-
-function parsePageRange(pageRange, totalPages) {
-  if (!pageRange || pageRange === 'all') {
-    return Array.from({ length: totalPages }, (_, i) => i);
-  }
-
-  const pages = [];
-  const parts = pageRange.split(',');
-
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (trimmed.includes('-')) {
-      const [start, end] = trimmed.split('-').map(Number);
-      for (let i = start; i <= Math.min(end, totalPages); i++) {
-        pages.push(i - 1);
-      }
-    } else {
-      const pageNum = parseInt(trimmed);
-      if (pageNum >= 1 && pageNum <= totalPages) {
-        pages.push(pageNum - 1);
-      }
-    }
-  }
-
-  return [...new Set(pages)].sort((a, b) => a - b);
 }
 
 function loadConfig() {
