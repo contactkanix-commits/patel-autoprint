@@ -221,7 +221,7 @@ function isImageFileType(file) {
 async function createContactSheetPrintJob(imageFiles, order, shopId, printers, bwOverridePrinter, colorOverridePrinter) {
   const first = imageFiles[0];
   const settings = first.settings || {};
-  const nUp = settings.pagesPerSheet || 1;
+  const nUp = settings.pagesPerSheet;
   const colorMode = imageFiles.some((f) => (f.settings?.colorMode || 'bw') === 'color') ? 'color' : 'bw';
   const copies = settings.copies || 1;
   const paperSize = settings.paperSize || 'A4';
