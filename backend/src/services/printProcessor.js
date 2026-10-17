@@ -1,7 +1,7 @@
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const path = require('path');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 let print;
 try {
@@ -148,12 +148,30 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const embedded = await embedImage(newDoc, chunk[j].storagePath);
           const imgW = embedded.width || cellW;
           const imgH = embedded.height || cellH;
-          const scale = Math.min((cellW - margin * 2) / imgW, (cellH - margin * 2) / imgH);
+          const boxW = cellW - margin * 2;
+          const boxH = cellH - margin * 2;
+          // Cover-fill: scale to fill the cell and crop the overflow (clipped
+          // to the cell) so the sheet prints edge-to-edge like a manual collage
+          // instead of letterboxing photos with white gaps.
+          const scale = Math.max(boxW / imgW, boxH / imgH);
           const drawW = imgW * scale;
           const drawH = imgH * scale;
           const x = col * cellW + (cellW - drawW) / 2;
           const y = dims.h - (rowFromTop + 1) * cellH + (cellH - drawH) / 2;
+          const clipX = col * cellW + margin;
+          const clipY = dims.h - (rowFromTop + 1) * cellH + margin;
+          page.pushOperators(
+            pushGraphicsState(),
+            moveTo(clipX, clipY),
+            lineTo(clipX + boxW, clipY),
+            lineTo(clipX + boxW, clipY + boxH),
+            lineTo(clipX, clipY + boxH),
+            closePath(),
+            clip(),
+            endPath()
+          );
           page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+          page.pushOperators(popGraphicsState());
         } catch (err) {
           console.error(`Failed to embed image ${chunk[j].storagePath}:`, err.message);
         }
