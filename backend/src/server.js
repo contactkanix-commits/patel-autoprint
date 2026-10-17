@@ -1469,8 +1469,12 @@ app.post('/api/guest/orders/:id/confirm', asyncHandler(async (req, res) => {
 
 // If auto-print (cash only), dispatch to printer
   if (shouldAutoPrint) {
-    const { processAndDispatchOrder } = require('./services/printProcessor');
-    await processAndDispatchOrder(order.id, prisma);
+    try {
+      const { processAndDispatchOrder } = require('./services/printProcessor');
+      await processAndDispatchOrder(order.id, prisma);
+    } catch (e) {
+      console.error('Auto-print dispatch failed:', e.message);
+    }
   }
 
   const updatedOrder = await prisma.order.findUnique({
