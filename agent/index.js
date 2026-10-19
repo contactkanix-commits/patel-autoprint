@@ -4,7 +4,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
-const { PDFDocument, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const POLL_INTERVAL = 2000;
@@ -195,7 +195,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             y: cellCenterY,
             width: isLandscapeImg ? imgH * scale : imgW * scale,
             height: isLandscapeImg ? imgW * scale : imgH * scale,
-            rotate: isLandscapeImg ? Math.PI / 2 : 0,
+            rotate: isLandscapeImg ? degrees(90) : degrees(0),
           });
           page.pushOperators(popGraphicsState());
         } catch (err) {

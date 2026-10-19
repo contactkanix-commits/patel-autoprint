@@ -1,7 +1,7 @@
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const path = require('path');
-const { PDFDocument, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 let print;
 try {
@@ -179,7 +179,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             y: cellCenterY,
             width: isLandscapeImg ? imgH * scale : imgW * scale,
             height: isLandscapeImg ? imgW * scale : imgH * scale,
-            rotate: isLandscapeImg ? Math.PI / 2 : 0,
+            rotate: isLandscapeImg ? degrees(90) : degrees(0),
           });
           page.pushOperators(popGraphicsState());
         } catch (err) {

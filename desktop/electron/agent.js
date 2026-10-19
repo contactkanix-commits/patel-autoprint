@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
 const { app } = require('electron');
-const { PDFDocument, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const POLL_INTERVAL = 2000;
 const MAX_CONCURRENT_JOBS = 2;
@@ -197,7 +197,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             y: cellCenterY,
             width: isLandscapeImg ? imgH * scale : imgW * scale,
             height: isLandscapeImg ? imgW * scale : imgH * scale,
-            rotate: isLandscapeImg ? Math.PI / 2 : 0,
+            rotate: isLandscapeImg ? degrees(90) : degrees(0),
           });
           page.pushOperators(popGraphicsState());
         } catch (err) {
