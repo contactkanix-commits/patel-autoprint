@@ -600,7 +600,16 @@ async function processJob(config, job) {
       options.side = 'simplex';
     }
     if (job.paperSize) options.paperSize = job.paperSize;
-    if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
+    // Always announce the generated PDF's orientation to the printer: with
+    // "auto" the driver otherwise prints landscape sheets rotated/shrunk
+    // onto portrait paper (looks portrait with cut-off images).
+    try {
+      const pdoc = await PDFDocument.load(await fsPromises.readFile(printPath));
+      const pg = pdoc.getPage(0);
+      options.orientation = pg.getWidth() > pg.getHeight() ? 'landscape' : 'portrait';
+    } catch {
+      if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
+    }
     if (job.colorMode === 'bw') options.monochrome = true;
 
     console.log(`  Printer: ${job.assignedPrinter || 'default'}`);

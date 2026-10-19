@@ -447,7 +447,18 @@ async function dispatchPrintJob(printJob, filePath) {
       options.paperSize = printJob.paperSize;
     }
 
-    console.log(`Dispatching print: ${filePath} -> ${printerName} (duplex=${options.side}, copies=${options.copies || 1}, paper=${options.paperSize})`);
+    // Always announce the generated PDF's orientation to the printer: with
+    // "auto" the driver otherwise prints landscape sheets rotated/shrunk
+    // onto portrait paper (looks portrait with cut-off images).
+    try {
+      const pdoc = await PDFDocument.load(await fsPromises.readFile(filePath));
+      const pg = pdoc.getPage(0);
+      options.orientation = pg.getWidth() > pg.getHeight() ? 'landscape' : 'portrait';
+    } catch {
+      if (printJob.orientation && printJob.orientation !== 'auto') options.orientation = printJob.orientation;
+    }
+
+    console.log(`Dispatching print: ${filePath} -> ${printerName} (duplex=${options.side}, copies=${options.copies || 1}, paper=${options.paperSize}, orientation=${options.orientation})`);
     await print.print(filePath, options);
     console.log(`Print dispatched successfully: ${printJob.id}`);
     return { success: true, message: `Sent to ${printerName}` };
