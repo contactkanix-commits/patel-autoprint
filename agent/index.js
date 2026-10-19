@@ -164,15 +164,20 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const embedded = await embedImage(newDoc, chunk[j].path);
           const imgW = embedded.width || cellW;
           const imgH = embedded.height || cellH;
+          const isLandscapeImg = imgW > imgH;
+          // For n-up sheets: rotate landscape images 90° so they fill
+          // portrait-ish cells better (landscape photo → portrait cell fit).
+          const effW = isLandscapeImg ? imgH : imgW;
+          const effH = isLandscapeImg ? imgW : imgH;
           const boxW = cellW - margin * 2;
           const boxH = cellH - margin * 2;
           // Fit: scale to fit within the cell (no crop); tiny margin so the
           // grid looks dense like a manual print but photos stay whole.
-          const scale = Math.min(boxW / imgW, boxH / imgH);
-          const drawW = imgW * scale;
-          const drawH = imgH * scale;
-          const x = col * cellW + (cellW - drawW) / 2;
-          const y = dims.h - (rowFromTop + 1) * cellH + (cellH - drawH) / 2;
+          const scale = Math.min(boxW / effW, boxH / effH);
+          const drawW = effW * scale;
+          const drawH = effH * scale;
+          const cellCenterX = col * cellW + cellW / 2;
+          const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
           const clipX = col * cellW + margin;
           const clipY = dims.h - (rowFromTop + 1) * cellH + margin;
           page.pushOperators(
@@ -185,7 +190,13 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             clip(),
             endPath()
           );
-          page.drawImage(embedded, { x, y, width: drawW, height: drawH });
+          page.drawImage(embedded, {
+            x: cellCenterX,
+            y: cellCenterY,
+            width: isLandscapeImg ? imgH * scale : imgW * scale,
+            height: isLandscapeImg ? imgW * scale : imgH * scale,
+            rotate: isLandscapeImg ? Math.PI / 2 : 0,
+          });
           page.pushOperators(popGraphicsState());
         } catch (err) {
           console.error(`Failed to embed image ${chunk[j].path}:`, err.message);
