@@ -103,7 +103,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   const n = nUp || 1;
   const newDoc = await PDFDocument.create();
   const baseDims = paperDims(paperSize, 'portrait');
-  const margin = 6; // Small margin to prevent content cutoff
+  const margin = 2; // Tiny margin so the grid looks dense but photos stay whole
 
   if (n === 1) {
     for (const f of imageFiles) {
@@ -150,10 +150,9 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const imgH = embedded.height || cellH;
           const boxW = cellW - margin * 2;
           const boxH = cellH - margin * 2;
-          // Cover-fill: scale to fill the cell and crop the overflow (clipped
-          // to the cell) so the sheet prints edge-to-edge like a manual collage
-          // instead of letterboxing photos with white gaps.
-          const scale = Math.max(boxW / imgW, boxH / imgH);
+          // Fit: scale to fit within the cell (no crop); tiny margin so the
+          // grid looks dense like a manual print but photos stay whole.
+          const scale = Math.min(boxW / imgW, boxH / imgH);
           const drawW = imgW * scale;
           const drawH = imgH * scale;
           const x = col * cellW + (cellW - drawW) / 2;
