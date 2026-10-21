@@ -99,7 +99,7 @@ async function embedImage(doc, filePath) {
 // - nUp === 1: one image per page, each page oriented to its image (like
 //   Windows "Print picture"), so photos fill the page instead of being tiny.
 // - nUp > 1: a grid laid out using the chosen paper orientation.
-async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto') {
+async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fit') {
   const n = nUp || 1;
   const newDoc = await PDFDocument.create();
   const baseDims = paperDims(paperSize, 'portrait');
@@ -152,8 +152,11 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const boxH = cellH - margin * 2;
           // Fit only — never rotate photo content (sideways photos confuse
           // customers); each image stays upright, centered, with white
-          // borders like a manual print.
-          const scale = Math.min(boxW / imgW, boxH / imgH);
+          // borders like a manual print. photoFit 'fill' covers the cell
+          // (crop overflow against the clip rect) for full-bleed sheets.
+          const scale = photoFit === 'fill'
+            ? Math.max(boxW / imgW, boxH / imgH)
+            : Math.min(boxW / imgW, boxH / imgH);
           const cellCenterX = col * cellW + cellW / 2;
           const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
           const clipX = col * cellW + margin;

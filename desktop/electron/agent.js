@@ -120,7 +120,7 @@ async function embedImage(doc, filePath) {
   throw new Error(`Unsupported image type: ${ext} (webp is converted to png server-side)`);
 }
 
-async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto') {
+async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fit') {
   const n = nUp || 1;
   const newDoc = await PDFDocument.create();
   const baseDims = paperDims(paperSize, 'portrait');
@@ -170,8 +170,11 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const boxH = cellH - margin * 2;
           // Fit only — never rotate photo content (sideways photos confuse
           // customers); each image stays upright, centered, with white
-          // borders like a manual print.
-          const scale = Math.min(boxW / imgW, boxH / imgH);
+          // borders like a manual print. photoFit 'fill' covers the cell
+          // (crop overflow against the clip rect) for full-bleed sheets.
+          const scale = photoFit === 'fill'
+            ? Math.max(boxW / imgW, boxH / imgH)
+            : Math.min(boxW / imgW, boxH / imgH);
           const cellCenterX = col * cellW + cellW / 2;
           const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
           const clipX = col * cellW + margin;
@@ -557,7 +560,8 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
           job.pagesPerSheet || 1,
           job.paperSize || 'A4',
           job.id,
-          job.orientation || 'auto'
+          job.orientation || 'auto',
+          job.photoFit || 'fit'
         );
         printPath = contactSheetPath;
         cleanupPaths.push(contactSheetPath);

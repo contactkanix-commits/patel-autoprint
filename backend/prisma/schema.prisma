@@ -144,6 +144,7 @@ model PrintJob {
   flipDirection  String   @default("long-edge")
   copies         Int      @default(1)
   orientation    String   @default("auto")   // auto, portrait, landscape
+  photoFit       String   @default("fit")    // fit (white borders), fill (cover-crop to cell)
   status         String   @default("PENDING") // PENDING, PROCESSING, PRINTING, COMPLETED, FAILED
   assignedPrinter String?
   shopId         String

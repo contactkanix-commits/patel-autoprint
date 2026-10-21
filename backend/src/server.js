@@ -241,6 +241,7 @@ const job = {
     flipDirection: 'long-edge',
     copies,
     orientation,
+    photoFit: nUp === 1 ? 'fit' : (settings.photoFit || 'fit'),
     shopId,
   };
 
@@ -298,6 +299,7 @@ async function createPrintJobsForFile(file, orderId, shopId, printers, bwOverrid
         ),
         copies: section.copies || s.copies || 1,
         orientation: section.orientation || s.orientation || 'auto',
+        photoFit: section.photoFit || s.photoFit || 'fit',
         shopId,
       };
       const printJob = await prisma.printJob.create({ data: assignPrinter(job) });
@@ -327,6 +329,7 @@ async function createPrintJobsForFile(file, orderId, shopId, printers, bwOverrid
     ),
     copies: s.copies || 1,
     orientation: s.orientation || 'auto',
+    photoFit: s.photoFit || 'fit',
     shopId,
   };
 
@@ -854,6 +857,7 @@ app.post('/api/orders/:id/confirm', authenticate, asyncHandler(async (req, res) 
       ),
       copies: settings.copies || 1,
       orientation: settings.orientation || 'auto',
+      photoFit: settings.photoFit || 'fit',
       shopId: order.shopId,
     };
 
@@ -2363,6 +2367,7 @@ app.get('/api/agent/jobs', authenticate, requireActiveSubscription, asyncHandler
     pagesPerSheet: job.pagesPerSheet,
     copies: job.copies,
     orientation: job.orientation,
+    photoFit: job.photoFit,
     flipDirection: job.flipDirection,
     colorMode: job.colorMode,
   }));

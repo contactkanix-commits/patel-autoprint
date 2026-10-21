@@ -1012,6 +1012,18 @@ function Step2Configure({ files, fileSettings, setFileSettings }) {
                     </FormControl>
                   </Grid>
                 </Grid>
+                {currentFile && isImageFile(currentFile) && (s.pagesPerSheet || 1) > 1 && (
+                  <OptionGroup
+                    label="Photo fit"
+                    cols={2}
+                    value={s.photoFit || 'fit'}
+                    onChange={(v) => updateSetting(activeTab, 'photoFit', v)}
+                    options={[
+                      { value: 'fit', label: 'Fit (white borders)' },
+                      { value: 'fill', label: 'Fill (crop to cell)' },
+                    ]}
+                  />
+                )}
                 <OptionGroup
                   label="Color"
                   cols={2}
