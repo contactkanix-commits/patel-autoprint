@@ -4,7 +4,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
-const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const POLL_INTERVAL = 2000;
@@ -166,14 +166,10 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
           const imgH = embedded.height || cellH;
           const boxW = cellW - margin * 2;
           const boxH = cellH - margin * 2;
-          // Fit: no crop, tiny margin so the grid looks dense like a manual
-          // print. Rotate the image 90° only when the rotated fit covers MORE
-          // of the cell (portrait-ish cells like 6-up); in landscape cells
-          // (e.g. 2-up landscape) upright already fits better and is kept.
-          const uprightScale = Math.min(boxW / imgW, boxH / imgH);
-          const rotatedScale = Math.min(boxW / imgH, boxH / imgW);
-          const rotateImg = imgW > imgH && rotatedScale > uprightScale;
-          const scale = rotateImg ? rotatedScale : uprightScale;
+          // Fit only — never rotate photo content (sideways photos confuse
+          // customers); each image stays upright, centered, with white
+          // borders like a manual print.
+          const scale = Math.min(boxW / imgW, boxH / imgH);
           const cellCenterX = col * cellW + cellW / 2;
           const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
           const clipX = col * cellW + margin;
@@ -188,19 +184,13 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             clip(),
             endPath()
           );
-          // drawImage takes the UNROTATED scaled size and rotates around its
-          // bottom-left anchor; degrees(90) then places the image occupying
-          // [x - h, x] x [y, y + w] — offset the anchor so it lands centered.
           const imgDrawW = imgW * scale;
           const imgDrawH = imgH * scale;
-          const x = rotateImg ? cellCenterX + imgDrawH / 2 : cellCenterX - imgDrawW / 2;
-          const y = rotateImg ? cellCenterY - imgDrawW / 2 : cellCenterY - imgDrawH / 2;
           page.drawImage(embedded, {
-            x,
-            y,
+            x: cellCenterX - imgDrawW / 2,
+            y: cellCenterY - imgDrawH / 2,
             width: imgDrawW,
             height: imgDrawH,
-            rotate: rotateImg ? degrees(90) : degrees(0),
           });
           page.pushOperators(popGraphicsState());
         } catch (err) {
