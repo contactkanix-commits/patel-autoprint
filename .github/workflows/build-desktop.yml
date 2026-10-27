@@ -1,0 +1,40 @@
+name: Build & Upload Desktop App (Windows)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-desktop.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest  # or 'self-hosted' if you have a Windows runner
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install desktop dependencies
+        working-directory: ./desktop
+        run: npm install
+
+      - name: Build Windows installer
+        working-directory: ./desktop
+        run: npm run package
+
+      - name: Upload installer to Render
+        env:
+          RENDER_URL: ${{ secrets.RENDER_URL }}
+          RENDER_TOKEN: ${{ secrets.RENDER_TOKEN }}
+        run: |
+          $exe = Get-ChildItem -Path "desktop\dist-electron\*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "No .exe found in dist-electron" }
+          
+          $response = Invoke-RestMethod -Uri "$RENDER_URL/api/admin/updates/upload" -Method Post -Headers @{ Authorization = "Bearer $RENDER_TOKEN" } -Form @{ file = $exe.FullName }
+          Write-Host "Upload response: $($response | ConvertTo-Json)"
