@@ -485,6 +485,91 @@ if (fs.existsSync(SUPERADMIN_DIST)) {
 
 // Desktop app auto-update files (latest.yml + installer + blockmap)
 const UPDATES_DIR = path.join(__dirname, '..', 'updates');
+fs.mkdirSync(UPDATES_DIR, { recursive: true });
+
+// Cache for latest.yml generation
+let updatesCache = null;
+let updatesCacheMtime = 0;
+
+function getUpdatesCache() {
+  if (!fs.existsSync(UPDATES_DIR)) return null;
+  const stat = fs.statSync(UPDATES_DIR);
+  if (updatesCache && updatesCacheMtime === stat.mtimeMs) return updatesCache;
+  const files = fs.readdirSync(UPDATES_DIR);
+  const exeFiles = files.filter((f) => f.endsWith('.exe'));
+  if (exeFiles.length === 0) {
+    updatesCache = null;
+    updatesCacheMtime = stat.mtimeMs;
+    return null;
+  }
+  exeFiles.sort((a, b) => {
+    const va = a.match(/(\d+\.\d+\.\d+)/)?.[1] || '0';
+    const vb = b.match(/(\d+\.\d+\.\d+)/)?.[1] || '0';
+    return vb.localeCompare(va, undefined, { numeric: true });
+  });
+  const latestExe = exeFiles[0];
+  const version = latestExe.match(/(\d+\.\d+\.\d+)/)?.[1] || '1.0.0';
+  const exePath = path.join(UPDATES_DIR, latestExe);
+  const exeBuffer = fs.readFileSync(exePath);
+  const sha512 = crypto.createHash('sha512').update(exeBuffer).digest('base64');
+  const size = exeBuffer.length;
+  updatesCache = {
+    version,
+    latestExe,
+    sha512,
+    size,
+    releaseDate: new Date().toISOString(),
+  };
+  updatesCacheMtime = stat.mtimeMs;
+  return updatesCache;
+}
+
+// Dynamic latest.yml for electron-updater generic provider
+app.get('/updates/latest.yml', asyncHandler(async (req, res) => {
+  const cache = getUpdatesCache();
+  if (!cache) {
+    res.status(404).type('text/plain').send('No updates available');
+    return;
+  }
+  const yml = `version: ${cache.version}\nfiles:\n  - url: ${cache.latestExe}\n    sha512: ${cache.sha512}\n    size: ${cache.size}\npath: ${cache.latestExe}\nsha512: ${cache.sha512}\nreleaseDate: '${cache.releaseDate}'`;
+  res.type('text/yaml').send(yml);
+}));
+
+// Upload new desktop app installer (admin only)
+// After uploading, build locally: cd desktop && npm run package
+// Then upload the generated .exe here. Shop PCs will auto-update.
+const updateUpload = multer({
+  storage: multer.diskStorage({
+    destination: UPDATES_DIR,
+    filename: (req, file, cb) => {
+      cb(null, file.originalname);
+    },
+  }),
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB
+});
+
+app.post(
+  '/api/admin/updates/upload',
+  authenticate,
+  requireRole(['OWNER', 'SUPER_ADMIN']),
+  updateUpload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new AppError('No file uploaded', 400, 'NO_FILE');
+    }
+    // Invalidate cache so latest.yml picks up the new file
+    updatesCache = null;
+    updatesCacheMtime = 0;
+    getUpdatesCache();
+    res.json({
+      success: true,
+      message: 'Update file uploaded successfully',
+      file: req.file.filename,
+      size: req.file.size,
+    });
+  })
+);
+
 if (fs.existsSync(UPDATES_DIR)) {
   app.use('/updates', express.static(UPDATES_DIR));
 }
