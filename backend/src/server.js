@@ -632,7 +632,9 @@ app.post('/api/upload', authenticate, upload.array('files', 20), asyncHandler(as
 
   for (const file of req.files) {
     const fileType = getFileType(file.originalname);
-    const analysis = await analyzeFile(file.path, fileType);
+    // Fast analysis on upload (page count + orientation only). Deep color scan
+    // runs later/lazily so large PDFs don't block the upload response.
+    const analysis = await analyzeFileFast(file.path, fileType);
 
     const defaultSettings = {
       paperSize: 'A4',

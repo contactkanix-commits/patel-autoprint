@@ -143,62 +143,86 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       }
     }
   } else {
-    // n-Up: auto orientation prints landscape (grid cells ~square, photos fill
-    // the A4 like a manual print); explicit portrait/landscape is respected.
-    const sheetOrient =
-      orientation === 'portrait' || orientation === 'landscape'
-        ? orientation
-        : 'landscape';
-    const { cols, rows } = imageGrid(n, sheetOrient);
-    const dims = paperDims(paperSize, sheetOrient);
+    // n-Up: grid & sheet orientation matched to the dominant image aspect
+    // (like Chrome / system print dialog), so photos are large and fill each
+    // cell instead of appearing tiny with blank space around them.
+    const baseDims = paperDims(paperSize, 'portrait');
+
+    // Pre-embed each image once (reused for both detection + drawing).
+    const infos = [];
+    for (const f of imageFiles) {
+      try {
+        const embedded = await embedImage(newDoc, f.path);
+        infos.push({
+          embedded,
+          w: embedded.width,
+          h: embedded.height,
+          landscape: embedded.width > embedded.height,
+        });
+      } catch (err) {
+        console.error(`Failed to embed image ${f.path}:`, err.message);
+      }
+    }
+
+    const landCount = infos.filter((i) => i.landscape).length;
+    const dominant = landCount >= infos.length - landCount ? 'landscape' : 'portrait';
+
+    // Explicit orientation wins; otherwise match dominant image aspect so the
+    // cell shape fits the photo (Chrome-like behavior).
+    let sheetLandscape;
+    if (orientation === 'landscape') sheetLandscape = true;
+    else if (orientation === 'portrait') sheetLandscape = false;
+    else sheetLandscape = n === 2 ? dominant !== 'landscape' : dominant === 'landscape';
+
+    let cols, rows;
+    if (dominant === 'landscape') {
+      switch (n) {
+        case 2: cols = 1; rows = 2; break;
+        case 4: cols = 2; rows = 2; break;
+        case 6: cols = 3; rows = 2; break;
+        case 8: cols = 4; rows = 2; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = 1; rows = 1;
+      }
+    } else {
+      switch (n) {
+        case 2: cols = 2; rows = 1; break;
+        case 4: cols = 2; rows = 2; break;
+        case 6: cols = 2; rows = 3; break;
+        case 8: cols = 2; rows = 4; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = 1; rows = 1;
+      }
+    }
+
+    const dims = sheetLandscape ? { w: baseDims.h, h: baseDims.w } : baseDims;
+    const margin = 2;
+
     for (let i = 0; i < imageFiles.length; i += n) {
-      const chunk = imageFiles.slice(i, i + n);
+      const chunk = infos.slice(i, i + n);
       const page = newDoc.addPage([dims.w, dims.h]);
       const cellW = dims.w / cols;
       const cellH = dims.h / rows;
+      const boxW = cellW - margin * 2;
+      const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
+        const { embedded, w: imgW, h: imgH } = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
-        try {
-          const embedded = await embedImage(newDoc, chunk[j].path);
-          const imgW = embedded.width || cellW;
-          const imgH = embedded.height || cellH;
-          const boxW = cellW - margin * 2;
-          const boxH = cellH - margin * 2;
-          // Fit only — never rotate photo content (sideways photos confuse
-          // customers); each image stays upright, centered, with white
-          // borders like a manual print. photoFit 'fill' covers the cell
-          // (crop overflow against the clip rect) for full-bleed sheets.
-          const scale = photoFit === 'fill'
-            ? Math.max(boxW / imgW, boxH / imgH)
-            : Math.min(boxW / imgW, boxH / imgH);
-          const cellCenterX = col * cellW + cellW / 2;
-          const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
-          const clipX = col * cellW + margin;
-          const clipY = dims.h - (rowFromTop + 1) * cellH + margin;
-          page.pushOperators(
-            pushGraphicsState(),
-            moveTo(clipX, clipY),
-            lineTo(clipX + boxW, clipY),
-            lineTo(clipX + boxW, clipY + boxH),
-            lineTo(clipX, clipY + boxH),
-            closePath(),
-            clip(),
-            endPath()
-          );
-          const imgDrawW = imgW * scale;
-          const imgDrawH = imgH * scale;
-          page.drawImage(embedded, {
-            x: cellCenterX - imgDrawW / 2,
-            y: cellCenterY - imgDrawH / 2,
-            width: imgDrawW,
-            height: imgDrawH,
-          });
-          page.pushOperators(popGraphicsState());
-        } catch (err) {
-          console.error(`Failed to embed image ${chunk[j].path}:`, err.message);
-        }
+        const scale = Math.min(boxW / imgW, boxH / imgH);
+        const cellCenterX = col * cellW + cellW / 2;
+        const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
+        const imgDrawW = imgW * scale;
+        const imgDrawH = imgH * scale;
+        page.drawImage(embedded, {
+          x: cellCenterX - imgDrawW / 2,
+          y: cellCenterY - imgDrawH / 2,
+          width: imgDrawW,
+          height: imgDrawH,
+        });
       }
     }
   }
