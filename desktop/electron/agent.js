@@ -139,7 +139,8 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const pageH = landscapeImg ? baseDims.w : baseDims.h;
       const page = newDoc.addPage([pageW, pageH]);
       if (embedded) {
-        const scale = Math.min((pageW - margin * 2) / embedded.width, (pageH - margin * 2) / embedded.height);
+        // Chrome-like: image fills the entire page (crop overflow), no white borders
+        const scale = Math.max(pageW / embedded.width, pageH / embedded.height);
         const drawW = embedded.width * scale;
         const drawH = embedded.height * scale;
         page.drawImage(embedded, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
@@ -208,7 +209,8 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         const { embedded, w: imgW, h: imgH } = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
-        const scale = Math.min(boxW / imgW, boxH / imgH);
+        // Chrome-like: fill the cell completely (crop overflow), no white borders
+        const scale = Math.max(boxW / imgW, boxH / imgH);
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
         const imgDrawW = imgW * scale;
