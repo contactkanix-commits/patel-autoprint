@@ -209,17 +209,34 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         const { embedded, w: imgW, h: imgH } = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
-        // Chrome-like: fill the cell completely (crop overflow), no white borders
-        const scale = Math.max(boxW / imgW, boxH / imgH);
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
-        const imgDrawW = imgW * scale;
-        const imgDrawH = imgH * scale;
+
+        // Auto-rotate: if rotating 90° fits the cell better (less cropping),
+        // rotate the image so portrait photos fit landscape cells and vice versa.
+        const scaleNormal = Math.max(boxW / imgW, boxH / imgH);
+        const scaleRotated = Math.max(boxW / imgH, boxH / imgW);
+
+        let rotateRad = 0;
+        let finalScale = scaleNormal;
+        let finalW = imgW;
+        let finalH = imgH;
+
+        if (scaleRotated < scaleNormal) {
+          rotateRad = Math.PI / 2;
+          finalScale = scaleRotated;
+          finalW = imgH;
+          finalH = imgW;
+        }
+
+        const drawW = finalW * finalScale;
+        const drawH = finalH * finalScale;
         page.drawImage(embedded, {
-          x: cellCenterX - imgDrawW / 2,
-          y: cellCenterY - imgDrawH / 2,
-          width: imgDrawW,
-          height: imgDrawH,
+          x: cellCenterX - drawW / 2,
+          y: cellCenterY - drawH / 2,
+          width: drawW,
+          height: drawH,
+          rotate: rotateRad,
         });
       }
     }
