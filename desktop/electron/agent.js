@@ -139,98 +139,108 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const pageH = landscapeImg ? baseDims.w : baseDims.h;
       const page = newDoc.addPage([pageW, pageH]);
       if (embedded) {
-        // Chrome-like: image fills the entire page (crop overflow), no white borders
-        const scale = Math.max(pageW / embedded.width, pageH / embedded.height);
+        // Strict No-Crop Scaling: Math.min only — no cropping, no stretching
+        const scale = Math.min((pageW - margin * 2) / embedded.width, (pageH - margin * 2) / embedded.height);
         const drawW = embedded.width * scale;
         const drawH = embedded.height * scale;
         page.drawImage(embedded, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
       }
     }
   } else {
-    // n-Up: auto orientation prints landscape (grid cells ~square, photos fill
-    // the A4 like a manual print); explicit portrait/landscape is respected.
-    // Match grid & sheet orientation to dominant image aspect (Chrome-like).
+    // ============================================
+    // 1. LAYOUT PARTITIONING (Chrome Style)
+    // Grid dimensions determined by FIRST image aspect ratio
+    // ============================================
     const baseDims = paperDims(paperSize, 'portrait');
-    const infos = [];
-    for (const f of imageFiles) {
-      try {
-        const embedded = await embedImage(newDoc, f.path);
-        infos.push({
-          embedded,
-          w: embedded.width,
-          h: embedded.height,
-          landscape: embedded.width > embedded.height,
-        });
-      } catch (err) {
-        console.error(`Failed to embed image ${f.path}:`, err.message);
-      }
-    }
-    const landCount = infos.filter((i) => i.landscape).length;
-    const dominant = landCount >= infos.length - landCount ? 'landscape' : 'portrait';
 
-    let sheetLandscape;
-    if (orientation === 'landscape') sheetLandscape = true;
-    else if (orientation === 'portrait') sheetLandscape = false;
-    else sheetLandscape = n === 2 ? dominant !== 'landscape' : dominant === 'landscape';
+    // Embed first image to determine its aspect ratio for partitioning
+    let firstEmbedded = null;
+    try {
+      firstEmbedded = await embedImage(newDoc, imageFiles[0].path);
+    } catch (err) {
+      console.error(`Failed to embed first image ${imageFiles[0].path}:`, err.message);
+    }
+    const firstIsLandscape = firstEmbedded ? firstEmbedded.width > firstEmbedded.height : false;
 
     let cols, rows;
-    if (dominant === 'landscape') {
-      switch (n) {
-        case 2: cols = 1; rows = 2; break;
-        case 4: cols = 2; rows = 2; break;
-        case 6: cols = 3; rows = 2; break;
-        case 8: cols = 4; rows = 2; break;
-        case 9: cols = 3; rows = 3; break;
-        case 16: cols = 4; rows = 4; break;
-        default: cols = 1; rows = 1;
+    if (n === 2) {
+      if (firstIsLandscape) {
+        // Landscape first image: partition vertically — 1 column, 2 rows (stacked above/below)
+        cols = 1; rows = 2;
+      } else {
+        // Portrait first image: partition horizontally — 2 columns, 1 row (side by side)
+        cols = 2; rows = 1;
       }
+    } else if (n === 3 || n === 4) {
+      // Balanced geometric grid matrix: 2x2
+      cols = 2; rows = 2;
     } else {
-      switch (n) {
-        case 2: cols = 2; rows = 1; break;
-        case 4: cols = 2; rows = 2; break;
-        case 6: cols = 2; rows = 3; break;
-        case 8: cols = 2; rows = 4; break;
-        case 9: cols = 3; rows = 3; break;
-        case 16: cols = 4; rows = 4; break;
-        default: cols = 1; rows = 1;
-      }
+      // Fallback for other nUp values
+      cols = Math.ceil(Math.sqrt(n));
+      rows = Math.ceil(n / cols);
     }
 
-    const dims = sheetLandscape ? { w: baseDims.h, h: baseDims.w } : baseDims;
-    const margin = 2;
+    // Sheet orientation follows grid shape (more columns = landscape sheet)
+    const sheetLandscape = cols > rows;
+    const sheetW = sheetLandscape ? baseDims.h : baseDims.w;
+    const sheetH = sheetLandscape ? baseDims.w : baseDims.h;
+
+    const margin = 0;
+
+    // ============================================
+    // N-UP GRID RENDERING (separated from grid math)
+    // ============================================
     for (let i = 0; i < imageFiles.length; i += n) {
-      const chunk = infos.slice(i, i + n);
-      const page = newDoc.addPage([dims.w, dims.h]);
-      const cellW = dims.w / cols;
-      const cellH = dims.h / rows;
+      const chunk = imageFiles.slice(i, i + n);
+      const page = newDoc.addPage([sheetW, sheetH]);
+      const cellW = sheetW / cols;
+      const cellH = sheetH / rows;
       const boxW = cellW - margin * 2;
       const boxH = cellH - margin * 2;
+
       for (let j = 0; j < chunk.length; j++) {
-        const { embedded, w: imgW, h: imgH } = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
         const cellCenterX = col * cellW + cellW / 2;
-        const cellCenterY = dims.h - (rowFromTop + 1) * cellH + cellH / 2;
+        const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
-        // Auto-rotate: if rotating 90° fits the cell better (less cropping),
-        // rotate the image so portrait photos fit landscape cells and vice versa.
-        const scaleNormal = Math.max(boxW / imgW, boxH / imgH);
-        const scaleRotated = Math.max(boxW / imgH, boxH / imgW);
+        let embedded = null;
+        try {
+          embedded = await embedImage(newDoc, chunk[j].path);
+        } catch (err) {
+          console.error(`Failed to embed image ${chunk[j].path}:`, err.message);
+        }
+        if (!embedded) continue;
+
+        let imgW = embedded.width;
+        let imgH = embedded.height;
+
+        // Grid slot orientation
+        const slotIsLandscape = boxW > boxH;
+        const imgIsLandscape = imgW > imgH;
 
         let rotateRad = 0;
-        let finalScale = scaleNormal;
-        let finalW = imgW;
-        let finalH = imgH;
 
-        if (scaleRotated < scaleNormal) {
+        // Automated Smart Rotation:
+        // If image orientation doesn't match grid slot orientation,
+        // rotate 90° internally so it utilizes the slot perfectly without truncation.
+        if (slotIsLandscape !== imgIsLandscape) {
           rotateRad = Math.PI / 2;
-          finalScale = scaleRotated;
-          finalW = imgH;
-          finalH = imgW;
+          // Swap width/height variables immediately after rotation
+          const temp = imgW;
+          imgW = imgH;
+          imgH = temp;
         }
 
-        const drawW = finalW * finalScale;
-        const drawH = finalH * finalScale;
+        // Strict No-Crop Scaling: Math.min only — forbidden to use Math.max or stretch
+        const scaleW = boxW / imgW;
+        const scaleH = boxH / imgH;
+        const scale = Math.min(scaleW, scaleH);
+
+        const drawW = imgW * scale;
+        const drawH = imgH * scale;
+
+        // Clean canvas coordinate manipulation: translate + rotate around center
         page.pushOperators(pushGraphicsState());
         if (rotateRad !== 0) {
           page.pushOperators(
