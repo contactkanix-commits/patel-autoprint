@@ -4,7 +4,7 @@ const path = require('path');
 const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
-const { PDFDocument, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const POLL_INTERVAL = 2000;
@@ -139,7 +139,13 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   }
 
   if (infos.length === 0) {
-    throw new Error('createContactSheet: no images could be embedded');
+    const page = newDoc.addPage([baseDims.w, baseDims.h]);
+    const bytes = await newDoc.save();
+    const dir = path.join(path.dirname(imageFiles[0]?.path || __dirname), 'print-ready');
+    await fsPromises.mkdir(dir, { recursive: true });
+    const outPath = path.join(dir, `${jobId || 'contact'}_contact.pdf`);
+    await fsPromises.writeFile(outPath, bytes);
+    return outPath;
   }
 
   // ============================================
@@ -209,60 +215,66 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
-        const { embedded, w: imgW, h: imgH } = chunk[j];
-        const col = j % cols;
-        const rowFromTop = Math.floor(j / cols);
-        const cellCenterX = col * cellW + cellW / 2;
-        const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
+        try {
+          const { embedded, w: imgW, h: imgH } = chunk[j];
+          const col = j % cols;
+          const rowFromTop = Math.floor(j / cols);
+          const cellCenterX = col * cellW + cellW / 2;
+          const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
-        // Grid slot orientation
-        const slotIsLandscape = boxW > boxH;
-        const imgIsLandscape = imgW > imgH;
+          // Grid slot orientation
+          const slotIsLandscape = boxW > boxH;
+          const imgIsLandscape = imgW > imgH;
 
-        let shouldRotate = false;
+          // Automated Smart Rotation:
+          // If image orientation doesn't match grid slot orientation,
+          // rotate 90° internally so it fits perfectly without truncation.
+          const shouldRotate = slotIsLandscape !== imgIsLandscape;
 
-        // Automated Smart Rotation:
-        // If image orientation doesn't match grid slot orientation,
-        // rotate 90° internally so it fits perfectly without truncation.
-        if (slotIsLandscape !== imgIsLandscape) {
-          shouldRotate = true;
-        }
+          // Strict No-Crop Scaling: Math.min only — forbidden to use Math.max
+          let scaleW, scaleH;
+          if (shouldRotate) {
+            scaleW = boxW / imgH;
+            scaleH = boxH / imgW;
+          } else {
+            scaleW = boxW / imgW;
+            scaleH = boxH / imgH;
+          }
+          const scale = Math.min(scaleW, scaleH);
 
-        // Strict No-Crop Scaling: Math.min only — forbidden to use Math.max
-        let scaleW, scaleH, drawW, drawH;
+          const drawW = imgW * scale;
+          const drawH = imgH * scale;
 
-        if (shouldRotate) {
-          // When rotated 90°, screen width = imgH * scale, screen height = imgW * scale
-          scaleW = boxW / imgH;
-          scaleH = boxH / imgW;
-        } else {
-          scaleW = boxW / imgW;
-          scaleH = boxH / imgH;
-        }
-        const scale = Math.min(scaleW, scaleH);
-
-        drawW = imgW * scale;
-        drawH = imgH * scale;
-
-        // Draw using pdf-lib's built-in rotate option (degrees, rotates around bottom-left)
-        // Adjust position so the (possibly rotated) image is centered in the cell.
-        if (shouldRotate) {
-          // After 90° rotation: image occupies x from x-drawH to x, y from y to y+drawW
-          // Center at cellCenter: x = cellCenterX + drawH/2, y = cellCenterY - drawW/2
-          page.drawImage(embedded, {
-            x: cellCenterX + drawH / 2,
-            y: cellCenterY - drawW / 2,
-            width: drawW,
-            height: drawH,
-            rotate: 90,
-          });
-        } else {
-          page.drawImage(embedded, {
-            x: cellCenterX - drawW / 2,
-            y: cellCenterY - drawH / 2,
-            width: drawW,
-            height: drawH,
-          });
+          // Draw using pdf-lib's built-in rotate option (degrees, rotates around bottom-left)
+          // Adjust position so the (possibly rotated) image is centered in the cell.
+          if (shouldRotate) {
+            page.drawImage(embedded, {
+              x: cellCenterX + drawH / 2,
+              y: cellCenterY - drawW / 2,
+              width: drawW,
+              height: drawH,
+              rotate: degrees(90),
+            });
+          } else {
+            page.drawImage(embedded, {
+              x: cellCenterX - drawW / 2,
+              y: cellCenterY - drawH / 2,
+              width: drawW,
+              height: drawH,
+            });
+          }
+        } catch (err) {
+          console.error(`[createContactSheet] Rotated draw failed, trying without rotation:`, err.message);
+          try {
+            page.drawImage(embedded, {
+              x: cellCenterX - drawW / 2,
+              y: cellCenterY - drawH / 2,
+              width: drawW,
+              height: drawH,
+            });
+          } catch (err2) {
+            console.error(`[createContactSheet] Non-rotated draw also failed:`, err2.message);
+          }
         }
       }
     }
@@ -357,7 +369,7 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
-            rotate: 90,
+            rotate: degrees(90),
           });
         } else {
           page.drawPage(embeddedPage, {

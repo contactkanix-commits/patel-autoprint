@@ -1030,7 +1030,7 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
   for (const { file, fileType, analysis } of analyses) {
     const defaultSettings = {
       paperSize: analysis.suggestedPaperSize || 'A4',
-      orientation: analysis.orientation || 'auto',
+      orientation: 'auto',
       colorMode: 'bw',
       printStyle: 'single',
       copies: 1,
@@ -1650,7 +1650,7 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
 
     const defaultSettings = {
       paperSize: analysis.suggestedPaperSize || 'A4',
-      orientation: analysis.orientation || 'auto',
+      orientation: 'auto',
       colorMode: 'bw',
       printStyle: 'single',
       copies: 1,

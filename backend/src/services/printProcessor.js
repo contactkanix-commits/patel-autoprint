@@ -1,7 +1,7 @@
 const fs = require('fs');
 const fsPromises = require('fs/promises');
 const path = require('path');
-const { PDFDocument, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 let print;
 try {
@@ -220,7 +220,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
-            rotate: 90,
+            rotate: degrees(90),
           });
         } else {
           page.drawImage(embedded, {
@@ -482,7 +482,7 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
-            rotate: 90,
+            rotate: degrees(90),
           });
         } else {
           page.drawPage(embeddedPage, {

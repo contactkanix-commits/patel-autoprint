@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
 const { app } = require('electron');
-const { PDFDocument, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const POLL_INTERVAL = 2000;
 const MAX_CONCURRENT_JOBS = 2;
@@ -241,7 +241,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
-            rotate: 90,
+            rotate: degrees(90),
           });
         } else {
           page.drawImage(embedded, {
@@ -344,7 +344,7 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
-            rotate: 90,
+            rotate: degrees(90),
           });
         } else {
           page.drawPage(embeddedPage, {
