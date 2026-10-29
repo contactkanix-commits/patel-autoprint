@@ -217,37 +217,43 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         const slotIsLandscape = boxW > boxH;
         const imgIsLandscape = imgW > imgH;
 
-        let rotateRad = 0;
-        let finalW = imgW;
-        let finalH = imgH;
+        let shouldRotate = false;
 
         // Automated Smart Rotation:
         // If image orientation doesn't match grid slot orientation,
         // rotate 90° internally so it fits perfectly without truncation.
         if (slotIsLandscape !== imgIsLandscape) {
-          rotateRad = Math.PI / 2;
-          // Swap width/height variables immediately after rotation
-          finalW = imgH;
-          finalH = imgW;
+          shouldRotate = true;
         }
 
         // Strict No-Crop Scaling: Math.min only — forbidden to use Math.max
-        const scaleW = boxW / finalW;
-        const scaleH = boxH / finalH;
+        let scaleW, scaleH, drawW, drawH;
+
+        if (shouldRotate) {
+          // When rotated 90°, screen width = imgH * scale, screen height = imgW * scale
+          scaleW = boxW / imgH;
+          scaleH = boxH / imgW;
+        } else {
+          scaleW = boxW / imgW;
+          scaleH = boxH / imgH;
+        }
         const scale = Math.min(scaleW, scaleH);
 
-        const drawW = finalW * scale;
-        const drawH = finalH * scale;
+        drawW = imgW * scale;
+        drawH = imgH * scale;
 
-        // Clean canvas coordinate manipulation: translate + rotate around center
-        page.pushOperators(pushGraphicsState());
-        if (rotateRad !== 0) {
-          page.pushOperators(
-            translate(cellCenterX, cellCenterY),
-            rotateRadians(rotateRad),
-            translate(-drawW / 2, -drawH / 2)
-          );
-          page.drawImage(embedded, { x: 0, y: 0, width: drawW, height: drawH });
+        // Draw using pdf-lib's built-in rotate option (degrees, rotates around bottom-left)
+        // Adjust position so the (possibly rotated) image is centered in the cell.
+        if (shouldRotate) {
+          // After 90° rotation: image occupies x from x-drawH to x, y from y to y+drawW
+          // Center at cellCenter: x = cellCenterX + drawH/2, y = cellCenterY - drawW/2
+          page.drawImage(embedded, {
+            x: cellCenterX + drawH / 2,
+            y: cellCenterY - drawW / 2,
+            width: drawW,
+            height: drawH,
+            rotate: 90,
+          });
         } else {
           page.drawImage(embedded, {
             x: cellCenterX - drawW / 2,
@@ -256,7 +262,6 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             height: drawH,
           });
         }
-        page.pushOperators(popGraphicsState());
       }
     }
   }
@@ -324,33 +329,34 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
         const pageIsLandscape = pageW > pageH;
 
         const slotIsLandscape = boxW > boxH;
-        let rotateRad = 0;
-        let finalW = pageW;
-        let finalH = pageH;
+        let shouldRotate = false;
 
-        // Smart rotation: mismatch → rotate 90°
         if (slotIsLandscape !== pageIsLandscape) {
-          rotateRad = Math.PI / 2;
-          finalW = pageH;
-          finalH = pageW;
+          shouldRotate = true;
         }
 
-        // Strict No-Crop Scaling: Math.min only
-        const scaleW = boxW / finalW;
-        const scaleH = boxH / finalH;
+        let scaleW, scaleH, drawW, drawH;
+
+        if (shouldRotate) {
+          scaleW = boxW / pageH;
+          scaleH = boxH / pageW;
+        } else {
+          scaleW = boxW / pageW;
+          scaleH = boxH / pageH;
+        }
         const scale = Math.min(scaleW, scaleH);
 
-        const drawW = finalW * scale;
-        const drawH = finalH * scale;
+        drawW = pageW * scale;
+        drawH = pageH * scale;
 
-        page.pushOperators(pushGraphicsState());
-        if (rotateRad !== 0) {
-          page.pushOperators(
-            translate(cellCenterX, cellCenterY),
-            rotateRadians(rotateRad),
-            translate(-drawW / 2, -drawH / 2)
-          );
-          page.drawPage(embeddedPage, { x: 0, y: 0, width: drawW, height: drawH });
+        if (shouldRotate) {
+          page.drawPage(embeddedPage, {
+            x: cellCenterX + drawH / 2,
+            y: cellCenterY - drawW / 2,
+            width: drawW,
+            height: drawH,
+            rotate: 90,
+          });
         } else {
           page.drawPage(embeddedPage, {
             x: cellCenterX - drawW / 2,
@@ -359,7 +365,6 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
             height: drawH,
           });
         }
-        page.pushOperators(popGraphicsState());
       } catch (err) {
         console.error(`Failed to embed page ${pages[i + j]}:`, err);
       }
