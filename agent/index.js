@@ -116,7 +116,7 @@ function sourceOrientation(pdfDoc) {
 }
 
 async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fill') {
-  const n = nUp || 1;
+  const n = Math.max(1, parseInt(nUp) || 1);
   const newDoc = await PDFDocument.create();
   const baseDims = paperDims(paperSize, 'portrait');
 
@@ -138,7 +138,9 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
     }
   }
 
-  if (infos.length === 0) return null;
+  if (infos.length === 0) {
+    throw new Error('createContactSheet: no images could be embedded');
+  }
 
   // ============================================
   // CASE 1: n === 1 (one image per page)
@@ -198,7 +200,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
     const margin = 0;
 
     // --- 2. GRID RENDERING (separated from partitioning math) ---
-    for (let i = 0; i < imageFiles.length; i += n) {
+    for (let i = 0; i < infos.length; i += n) {
       const chunk = infos.slice(i, i + n);
       const page = newDoc.addPage([sheetW, sheetH]);
       const cellW = sheetW / cols;
