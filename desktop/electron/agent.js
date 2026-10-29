@@ -120,78 +120,83 @@ async function embedImage(doc, filePath) {
   throw new Error(`Unsupported image type: ${ext} (webp is converted to png server-side)`);
 }
 
-async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fit') {
+async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fill') {
   const n = nUp || 1;
   const newDoc = await PDFDocument.create();
   const baseDims = paperDims(paperSize, 'portrait');
-  const margin = 2;
 
-  if (n === 1) {
-    for (const f of imageFiles) {
-      let embedded = null;
-      try { embedded = await embedImage(newDoc, f.path); } catch (err) {
-        console.error(`Failed to embed image ${f.path}:`, err.message);
-      }
-      const ew = embedded?.width || baseDims.w;
-      const eh = embedded?.height || baseDims.h;
-      const landscapeImg = ew > eh;
-      const pageW = landscapeImg ? baseDims.h : baseDims.w;
-      const pageH = landscapeImg ? baseDims.w : baseDims.h;
-      const page = newDoc.addPage([pageW, pageH]);
-      if (embedded) {
-        // Strict No-Crop Scaling: Math.min only — no cropping, no stretching
-        const scale = Math.min((pageW - margin * 2) / embedded.width, (pageH - margin * 2) / embedded.height);
-        const drawW = embedded.width * scale;
-        const drawH = embedded.height * scale;
-        page.drawImage(embedded, { x: (pageW - drawW) / 2, y: (pageH - drawH) / 2, width: drawW, height: drawH });
-      }
-    }
-  } else {
-    // ============================================
-    // 1. LAYOUT PARTITIONING (Chrome Style)
-    // Grid dimensions determined by FIRST image aspect ratio
-    // ============================================
-    const baseDims = paperDims(paperSize, 'portrait');
-
-    // Embed first image to determine its aspect ratio for partitioning
-    let firstEmbedded = null;
+  // ============================================
+  // Pre-embed all images once (single pass)
+  // ============================================
+  const infos = [];
+  for (const f of imageFiles) {
     try {
-      firstEmbedded = await embedImage(newDoc, imageFiles[0].path);
+      const embedded = await embedImage(newDoc, f.path);
+      infos.push({
+        embedded,
+        w: embedded.width,
+        h: embedded.height,
+        landscape: embedded.width > embedded.height,
+      });
     } catch (err) {
-      console.error(`Failed to embed first image ${imageFiles[0].path}:`, err.message);
+      console.error(`Failed to embed image ${f.path}:`, err.message);
     }
-    const firstIsLandscape = firstEmbedded ? firstEmbedded.width > firstEmbedded.height : false;
+  }
+
+  if (infos.length === 0) return null;
+
+  // ============================================
+  // CASE 1: n === 1 (one image per page)
+  // ============================================
+  if (n === 1) {
+    for (const info of infos) {
+      const imgIsLandscape = info.w > info.h;
+      const pageW = imgIsLandscape ? baseDims.h : baseDims.w;
+      const pageH = imgIsLandscape ? baseDims.w : baseDims.h;
+      const page = newDoc.addPage([pageW, pageH]);
+
+      const scale = Math.min((pageW - 4) / info.w, (pageH - 4) / info.h);
+      const drawW = info.w * scale;
+      const drawH = info.h * scale;
+
+      page.drawImage(info.embedded, {
+        x: (pageW - drawW) / 2,
+        y: (pageH - drawH) / 2,
+        width: drawW,
+        height: drawH,
+      });
+    }
+  }
+  // ============================================
+  // CASE 2: n >= 2 (n-up grid)
+  // ============================================
+  else {
+    // --- 1. LAYOUT PARTITIONING (Chrome Style) ---
+    const firstIsLandscape = infos[0].landscape;
 
     let cols, rows;
     if (n === 2) {
       if (firstIsLandscape) {
-        // Landscape first image: partition vertically — 1 column, 2 rows (stacked above/below)
         cols = 1; rows = 2;
       } else {
-        // Portrait first image: partition horizontally — 2 columns, 1 row (side by side)
         cols = 2; rows = 1;
       }
     } else if (n === 3 || n === 4) {
-      // Balanced geometric grid matrix: 2x2
       cols = 2; rows = 2;
     } else {
-      // Fallback for other nUp values
       cols = Math.ceil(Math.sqrt(n));
       rows = Math.ceil(n / cols);
     }
 
-    // Sheet orientation follows grid shape (more columns = landscape sheet)
     const sheetLandscape = cols > rows;
     const sheetW = sheetLandscape ? baseDims.h : baseDims.w;
     const sheetH = sheetLandscape ? baseDims.w : baseDims.h;
 
     const margin = 0;
 
-    // ============================================
-    // N-UP GRID RENDERING (separated from grid math)
-    // ============================================
+    // --- 2. GRID RENDERING ---
     for (let i = 0; i < imageFiles.length; i += n) {
-      const chunk = imageFiles.slice(i, i + n);
+      const chunk = infos.slice(i, i + n);
       const page = newDoc.addPage([sheetW, sheetH]);
       const cellW = sheetW / cols;
       const cellH = sheetH / rows;
@@ -199,48 +204,32 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
+        const { embedded, w: imgW, h: imgH } = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
-        let embedded = null;
-        try {
-          embedded = await embedImage(newDoc, chunk[j].path);
-        } catch (err) {
-          console.error(`Failed to embed image ${chunk[j].path}:`, err.message);
-        }
-        if (!embedded) continue;
-
-        let imgW = embedded.width;
-        let imgH = embedded.height;
-
-        // Grid slot orientation
         const slotIsLandscape = boxW > boxH;
         const imgIsLandscape = imgW > imgH;
 
         let rotateRad = 0;
+        let finalW = imgW;
+        let finalH = imgH;
 
-        // Automated Smart Rotation:
-        // If image orientation doesn't match grid slot orientation,
-        // rotate 90° internally so it utilizes the slot perfectly without truncation.
         if (slotIsLandscape !== imgIsLandscape) {
           rotateRad = Math.PI / 2;
-          // Swap width/height variables immediately after rotation
-          const temp = imgW;
-          imgW = imgH;
-          imgH = temp;
+          finalW = imgH;
+          finalH = imgW;
         }
 
-        // Strict No-Crop Scaling: Math.min only — forbidden to use Math.max or stretch
-        const scaleW = boxW / imgW;
-        const scaleH = boxH / imgH;
+        const scaleW = boxW / finalW;
+        const scaleH = boxH / finalH;
         const scale = Math.min(scaleW, scaleH);
 
-        const drawW = imgW * scale;
-        const drawH = imgH * scale;
+        const drawW = finalW * scale;
+        const drawH = finalH * scale;
 
-        // Clean canvas coordinate manipulation: translate + rotate around center
         page.pushOperators(pushGraphicsState());
         if (rotateRad !== 0) {
           page.pushOperators(
@@ -275,6 +264,7 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
   const srcOrient = sourceOrientation(pdfDoc);
   const dims = paperDims(paperSize || 'A4');
 
+  // --- Layout Partitioning: grid based on source orientation ---
   let cols, rows;
   if (srcOrient === 'landscape') {
     switch (nUp) {
@@ -298,35 +288,72 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize) {
     }
   }
 
-  const pageLandscape = nUp === 2 ? srcOrient !== 'landscape' : srcOrient === 'landscape';
-  const pageW = pageLandscape ? Math.max(dims.w, dims.h) : Math.min(dims.w, dims.h);
-  const pageH = pageLandscape ? Math.min(dims.w, dims.h) : Math.max(dims.w, dims.h);
+  const sheetLandscape = cols > rows;
+  const sheetW = sheetLandscape ? Math.max(dims.w, dims.h) : Math.min(dims.w, dims.h);
+  const sheetH = sheetLandscape ? Math.min(dims.w, dims.h) : Math.max(dims.w, dims.h);
+
+  const margin = 0;
 
   for (let i = 0; i < pages.length; i += nUp) {
-    const page = newDoc.addPage([pageW, pageH]);
+    const page = newDoc.addPage([sheetW, sheetH]);
+    const cellW = sheetW / cols;
+    const cellH = sheetH / rows;
+    const boxW = cellW - margin * 2;
+    const boxH = cellH - margin * 2;
+
     for (let j = 0; j < nUp && i + j < pages.length; j++) {
       const col = j % cols;
-      const row = Math.floor(j / cols);
-      const cellW = page.getWidth() / cols;
-      const cellH = page.getHeight() / rows;
-      const x = col * cellW;
-      const y = page.getHeight() - (row + 1) * cellH;
+      const rowFromTop = Math.floor(j / cols);
+      const cellCenterX = col * cellW + cellW / 2;
+      const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
+
       try {
         const [embeddedPage] = await newDoc.embedPdf(pdfDoc, [pages[i + j]]);
-        const scale = Math.min(cellW / embeddedPage.width, cellH / embeddedPage.height);
-        const drawW = embeddedPage.width * scale;
-        const drawH = embeddedPage.height * scale;
-        page.drawPage(embeddedPage, {
-          x: x + (cellW - drawW) / 2,
-          y: y + (cellH - drawH) / 2,
-          width: drawW,
-          height: drawH,
-        });
+        const pageW = embeddedPage.width;
+        const pageH = embeddedPage.height;
+        const pageIsLandscape = pageW > pageH;
+
+        const slotIsLandscape = boxW > boxH;
+        let rotateRad = 0;
+        let finalW = pageW;
+        let finalH = pageH;
+
+        if (slotIsLandscape !== pageIsLandscape) {
+          rotateRad = Math.PI / 2;
+          finalW = pageH;
+          finalH = pageW;
+        }
+
+        const scaleW = boxW / finalW;
+        const scaleH = boxH / finalH;
+        const scale = Math.min(scaleW, scaleH);
+
+        const drawW = finalW * scale;
+        const drawH = finalH * scale;
+
+        page.pushOperators(pushGraphicsState());
+        if (rotateRad !== 0) {
+          page.pushOperators(
+            translate(cellCenterX, cellCenterY),
+            rotateRadians(rotateRad),
+            translate(-drawW / 2, -drawH / 2)
+          );
+          page.drawPage(embeddedPage, { x: 0, y: 0, width: drawW, height: drawH });
+        } else {
+          page.drawPage(embeddedPage, {
+            x: cellCenterX - drawW / 2,
+            y: cellCenterY - drawH / 2,
+            width: drawW,
+            height: drawH,
+          });
+        }
+        page.pushOperators(popGraphicsState());
       } catch (err) {
         console.error(`Failed to embed page ${pages[i + j]}:`, err);
       }
     }
   }
+
   return newDoc;
 }
 
