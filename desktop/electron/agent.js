@@ -144,7 +144,13 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   }
 
   if (infos.length === 0) {
-    throw new Error('createContactSheet: no images could be embedded');
+    const page = newDoc.addPage([baseDims.w, baseDims.h]);
+    const bytes = await newDoc.save();
+    const dir = path.join(path.dirname(imageFiles[0]?.path || __dirname), 'print-ready');
+    await fsPromises.mkdir(dir, { recursive: true });
+    const outPath = path.join(dir, `${jobId || 'contact'}_contact.pdf`);
+    await fsPromises.writeFile(outPath, bytes);
+    return outPath;
   }
 
   // ============================================
@@ -173,28 +179,58 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // CASE 2: n >= 2 (n-up grid)
   // ============================================
   else {
-    // --- 1. LAYOUT PARTITIONING (Chrome Style) ---
-    const firstIsLandscape = infos[0].landscape;
+    // --- 1. LAYOUT PARTITIONING ---
+    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
+    let sheetLandscape;
+    if (orientation === 'portrait') {
+      sheetLandscape = false;
+    } else if (orientation === 'landscape') {
+      sheetLandscape = true;
+    } else {
+      // 'auto': landscape images -> portrait sheet (stack vertically to use width)
+      //         portrait images  -> landscape sheet (side by side to use height)
+      const landCount = infos.filter((i) => i.landscape).length;
+      sheetLandscape = landCount < infos.length - landCount;
+    }
 
+    // Grid based on sheet orientation + nUp
     let cols, rows;
     if (n === 2) {
-      if (firstIsLandscape) {
+      // For 2 images: grid depends on dominant image orientation
+      const landCount = infos.filter((i) => i.landscape).length;
+      const portraitCount = infos.length - landCount;
+      if (landCount >= portraitCount) {
+        // Landscape images: stack vertically (1 col, 2 rows) — each gets full width
         cols = 1; rows = 2;
       } else {
+        // Portrait images: side by side (2 cols, 1 row) — each gets full height
         cols = 2; rows = 1;
       }
     } else if (n === 3 || n === 4) {
       cols = 2; rows = 2;
+    } else if (sheetLandscape) {
+      switch (n) {
+        case 6: cols = 3; rows = 2; break;
+        case 8: cols = 4; rows = 2; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols);
+      }
     } else {
-      cols = Math.ceil(Math.sqrt(n));
-      rows = Math.ceil(n / cols);
+      switch (n) {
+        case 6: cols = 2; rows = 3; break;
+        case 8: cols = 2; rows = 4; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols);
+      }
     }
 
-    const sheetLandscape = cols > rows;
     const sheetW = sheetLandscape ? baseDims.h : baseDims.w;
     const sheetH = sheetLandscape ? baseDims.w : baseDims.h;
 
-    const margin = 0;
+    // Small default margin to avoid edge clipping
+    const margin = 4;
 
     // --- 2. GRID RENDERING ---
     for (let i = 0; i < infos.length; i += n) {

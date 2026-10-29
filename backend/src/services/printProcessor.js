@@ -152,28 +152,58 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // CASE 2: n >= 2 (n-up grid)
   // ============================================
   else {
-    // --- 1. LAYOUT PARTITIONING (Chrome Style) ---
-    const firstIsLandscape = infos[0].landscape;
+    // --- 1. LAYOUT PARTITIONING ---
+    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
+    let sheetLandscape;
+    if (orientation === 'portrait') {
+      sheetLandscape = false;
+    } else if (orientation === 'landscape') {
+      sheetLandscape = true;
+    } else {
+      // 'auto': landscape images -> portrait sheet (stack vertically to use width)
+      //         portrait images  -> landscape sheet (side by side to use height)
+      const landCount = infos.filter((i) => i.landscape).length;
+      sheetLandscape = landCount < infos.length - landCount;
+    }
 
+    // Grid based on sheet orientation + nUp
     let cols, rows;
     if (n === 2) {
-      if (firstIsLandscape) {
+      // For 2 images: grid depends on dominant image orientation
+      const landCount = infos.filter((i) => i.landscape).length;
+      const portraitCount = infos.length - landCount;
+      if (landCount >= portraitCount) {
+        // Landscape images: stack vertically (1 col, 2 rows) — each gets full width
         cols = 1; rows = 2;
       } else {
+        // Portrait images: side by side (2 cols, 1 row) — each gets full height
         cols = 2; rows = 1;
       }
     } else if (n === 3 || n === 4) {
       cols = 2; rows = 2;
+    } else if (sheetLandscape) {
+      switch (n) {
+        case 6: cols = 3; rows = 2; break;
+        case 8: cols = 4; rows = 2; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols);
+      }
     } else {
-      cols = Math.ceil(Math.sqrt(n));
-      rows = Math.ceil(n / cols);
+      switch (n) {
+        case 6: cols = 2; rows = 3; break;
+        case 8: cols = 2; rows = 4; break;
+        case 9: cols = 3; rows = 3; break;
+        case 16: cols = 4; rows = 4; break;
+        default: cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols);
+      }
     }
 
-    const sheetLandscape = cols > rows;
     const sheetW = sheetLandscape ? baseDims.h : baseDims.w;
     const sheetH = sheetLandscape ? baseDims.w : baseDims.h;
 
-    const margin = 0;
+    // Small default margin to avoid edge clipping
+    const margin = 4;
 
     // --- 2. GRID RENDERING ---
     for (let i = 0; i < infos.length; i += n) {
@@ -185,50 +215,79 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
-        const { embedded, w: imgW, h: imgH } = chunk[j];
-        const col = j % cols;
-        const rowFromTop = Math.floor(j / cols);
-        const cellCenterX = col * cellW + cellW / 2;
-        const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
+        try {
+          const { embedded, w: imgW, h: imgH } = chunk[j];
+          const col = j % cols;
+          const rowFromTop = Math.floor(j / cols);
+          const cellCenterX = col * cellW + cellW / 2;
+          const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
-        const slotIsLandscape = boxW > boxH;
-        const imgIsLandscape = imgW > imgH;
+          // Grid slot orientation
+          const slotIsLandscape = boxW > boxH;
+          const imgIsLandscape = imgW > imgH;
 
-        let shouldRotate = false;
+          // Smart rotation: if image orientation doesn't match slot orientation, rotate 90°
+          const shouldRotate = slotIsLandscape !== imgIsLandscape;
 
-        if (slotIsLandscape !== imgIsLandscape) {
-          shouldRotate = true;
-        }
+          // Strict No-Crop Scaling: Math.min only — preserve aspect ratio
+          let scaleW, scaleH;
+          if (shouldRotate) {
+            scaleW = boxW / imgH;
+            scaleH = boxH / imgW;
+          } else {
+            scaleW = boxW / imgW;
+            scaleH = boxH / imgH;
+          }
+          const scale = Math.min(scaleW, scaleH);
 
-        let scaleW, scaleH, drawW, drawH;
+          const drawW = imgW * scale;
+          const drawH = imgH * scale;
 
-        if (shouldRotate) {
-          scaleW = boxW / imgH;
-          scaleH = boxH / imgW;
-        } else {
-          scaleW = boxW / imgW;
-          scaleH = boxH / imgH;
-        }
-        const scale = Math.min(scaleW, scaleH);
-
-        drawW = imgW * scale;
-        drawH = imgH * scale;
-
-        if (shouldRotate) {
-          page.drawImage(embedded, {
-            x: cellCenterX + drawH / 2,
-            y: cellCenterY - drawW / 2,
-            width: drawW,
-            height: drawH,
-            rotate: degrees(90),
-          });
-        } else {
-          page.drawImage(embedded, {
-            x: cellCenterX - drawW / 2,
-            y: cellCenterY - drawH / 2,
-            width: drawW,
-            height: drawH,
-          });
+          // Draw with built-in rotate (degrees(90) rotates CCW around bottom-left)
+          if (shouldRotate) {
+            page.drawImage(embedded, {
+              x: cellCenterX + drawH / 2,
+              y: cellCenterY - drawW / 2,
+              width: drawW,
+              height: drawH,
+              rotate: degrees(90),
+            });
+          } else {
+            page.drawImage(embedded, {
+              x: cellCenterX - drawW / 2,
+              y: cellCenterY - drawH / 2,
+              width: drawW,
+              height: drawH,
+            });
+          }
+        } catch (err) {
+          console.error(`[createContactSheet] Rotated draw failed, trying without rotation:`, err.message);
+          try {
+            // Fallback: draw without rotation, recompute scale locally
+            const info = chunk[j];
+            const slotIsLandscapeFb = boxW > boxH;
+            const imgIsLandscapeFb = info.w > info.h;
+            const shouldRotateFb = slotIsLandscapeFb !== imgIsLandscapeFb;
+            let scaleWfb, scaleHfb;
+            if (shouldRotateFb) {
+              scaleWfb = boxW / info.h;
+              scaleHfb = boxH / info.w;
+            } else {
+              scaleWfb = boxW / info.w;
+              scaleHfb = boxH / info.h;
+            }
+            const scaleFb = Math.min(scaleWfb, scaleHfb);
+            const drawWfb = info.w * scaleFb;
+            const drawHfb = info.h * scaleFb;
+            page.drawImage(info.embedded, {
+              x: cellCenterX - drawWfb / 2,
+              y: cellCenterY - drawHfb / 2,
+              width: drawWfb,
+              height: drawHfb,
+            });
+          } catch (err2) {
+            console.error(`[createContactSheet] Fallback draw also failed:`, err2.message);
+          }
         }
       }
     }
