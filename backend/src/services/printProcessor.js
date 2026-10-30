@@ -85,18 +85,41 @@ function imageGrid(nUp, orientation = 'landscape') {
 async function embedImage(doc, filePath) {
   const data = await fsPromises.readFile(filePath);
 
-  // Try each format directly — more robust than detecting first.
-  try { return doc.embedJpg(data); } catch {}
+  if (!data || data.length === 0) {
+    throw new Error(`Empty file: ${filePath} (0 bytes)`);
+  }
 
+  // Detect format from file header bytes (magic numbers)
+  const isJpg = data[0] === 0xFF && data[1] === 0xD8;
+  const isPng = data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47;
+  const isWebp = data.length >= 12 && data.subarray(0, 4).toString('latin1') === 'RIFF' && data.subarray(8, 12).toString('latin1') === 'WEBP';
+
+  // Try direct embed based on detected format
+  if (isJpg) {
+    try { return doc.embedJpg(data); } catch (e) {
+      throw new Error(`embedJpg failed: ${e.message}`);
+    }
+  }
+  if (isPng) {
+    try { return doc.embedPng(data); } catch (e) {
+      throw new Error(`embedPng failed: ${e.message}`);
+    }
+  }
+  if (isWebp) {
+    try {
+      const sharp = require('sharp');
+      const png = await sharp(data).png().toBuffer();
+      return doc.embedPng(png);
+    } catch (e) {
+      throw new Error(`WebP sharp conversion failed: ${e.message}`);
+    }
+  }
+
+  // Unknown format: try all embed methods as fallback
+  try { return doc.embedJpg(data); } catch {}
   try { return doc.embedPng(data); } catch {}
 
-  try {
-    const sharp = require('sharp');
-    const png = await sharp(data).png().toBuffer();
-    return doc.embedPng(png);
-  } catch {}
-
-  throw new Error(`embedImage failed: JPG/PNG/Sharp all rejected file: ${filePath}`);
+  throw new Error(`Unknown image format (first bytes: ${data[0]},${data[1]},${data[2]},${data[3]})`);
 }
 
 // Combines multiple image files into a contact-sheet PDF.
