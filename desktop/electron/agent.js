@@ -6,7 +6,7 @@ const http = require('http');
 const https = require('https');
 const { spawn } = require('child_process');
 const { app } = require('electron');
-const { PDFDocument, degrees, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
+const { PDFDocument, degrees, rgb, pushGraphicsState, popGraphicsState, translate, rotateRadians, moveTo, lineTo, closePath, clip, endPath } = require('pdf-lib');
 
 const POLL_INTERVAL = 2000;
 const MAX_CONCURRENT_JOBS = 2;
@@ -147,9 +147,18 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         w: embedded.width,
         h: embedded.height,
         landscape: embedded.width > embedded.height,
+        label: f.label || f.path,
       });
     } catch (err) {
       console.error(`Failed to embed image ${f.path}:`, err.message);
+      infos.push({
+        embedded: null,
+        w: 0,
+        h: 0,
+        landscape: false,
+        label: f.label || f.path,
+        error: err.message,
+      });
     }
   }
 
@@ -247,23 +256,53 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
-        const { embedded, w: imgW, h: imgH } = chunk[j];
+        const info = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
+        // Draw cell border for debugging
+        page.drawRectangle({
+          x: col * cellW,
+          y: sheetH - (rowFromTop + 1) * cellH,
+          width: cellW,
+          height: cellH,
+          borderColor: rgb(0.8, 0.8, 0.8),
+          borderWidth: 1,
+        });
+
+        if (!info.embedded) {
+          // Draw error box when image failed to embed
+          page.drawRectangle({
+            x: col * cellW + margin,
+            y: sheetH - (rowFromTop + 1) * cellH + margin,
+            width: cellW - margin * 2,
+            height: cellH - margin * 2,
+            color: rgb(1, 0.9, 0.9),
+            borderColor: rgb(1, 0, 0),
+            borderWidth: 2,
+          });
+          page.drawText(`IMAGE ERROR\n${info.label || 'unknown'}`, {
+            x: col * cellW + margin + 5,
+            y: sheetH - (rowFromTop + 1) * cellH + margin + 5,
+            size: 10,
+            color: rgb(1, 0, 0),
+          });
+          continue;
+        }
+
+        const { embedded, w: imgW, h: imgH } = info;
+
+        // Grid slot orientation
         const slotIsLandscape = boxW > boxH;
         const imgIsLandscape = imgW > imgH;
 
-        let shouldRotate = false;
+        // Smart rotation: if image orientation doesn't match slot orientation, rotate 90°
+        const shouldRotate = slotIsLandscape !== imgIsLandscape;
 
-        if (slotIsLandscape !== imgIsLandscape) {
-          shouldRotate = true;
-        }
-
-        let scaleW, scaleH, drawW, drawH;
-
+        // Strict No-Crop Scaling: Math.min only — preserve aspect ratio
+        let scaleW, scaleH;
         if (shouldRotate) {
           scaleW = boxW / imgH;
           scaleH = boxH / imgW;
@@ -273,9 +312,10 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         }
         const scale = Math.min(scaleW, scaleH);
 
-        drawW = imgW * scale;
-        drawH = imgH * scale;
+        const drawW = imgW * scale;
+        const drawH = imgH * scale;
 
+        // Draw with built-in rotate (degrees(90) rotates CCW around bottom-left)
         if (shouldRotate) {
           page.drawImage(embedded, {
             x: cellCenterX + drawH / 2,
@@ -292,6 +332,12 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             height: drawH,
           });
         }
+        page.drawText(info.label || '', {
+          x: col * cellW + margin + 2,
+          y: sheetH - (rowFromTop + 1) * cellH + margin + 2,
+          size: 8,
+          color: rgb(0, 0, 0),
+        });
       }
     }
   }
