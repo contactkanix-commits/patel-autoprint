@@ -177,36 +177,26 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // ============================================
   else {
     // --- 1. LAYOUT PARTITIONING ---
-    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
+    // Sheet orientation from orientation parameter ('auto' uses landscape sheet for
+    // multiple images so photos print side by side like Chrome/system print dialog)
     let sheetLandscape;
     if (orientation === 'portrait') {
       sheetLandscape = false;
     } else if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      // 'auto': landscape images -> portrait sheet (stack vertically to use width)
-      //         portrait images  -> landscape sheet (side by side to use height)
-      const landCount = infos.filter((i) => i.landscape).length;
-      sheetLandscape = landCount < infos.length - landCount;
+      // 'auto': multiple images -> landscape sheet (side by side)
+      //         single image -> portrait sheet (matches image orientation)
+      sheetLandscape = n > 1;
     }
 
     // Grid based on sheet orientation + nUp
     let cols, rows;
-    if (n === 2) {
-      // For 2 images: grid depends on dominant image orientation
-      const landCount = infos.filter((i) => i.landscape).length;
-      const portraitCount = infos.length - landCount;
-      if (landCount >= portraitCount) {
-        // Landscape images: stack vertically (1 col, 2 rows) — each gets full width
-        cols = 1; rows = 2;
-      } else {
-        // Portrait images: side by side (2 cols, 1 row) — each gets full height
-        cols = 2; rows = 1;
-      }
-    } else if (n === 3 || n === 4) {
-      cols = 2; rows = 2;
-    } else if (sheetLandscape) {
+    if (sheetLandscape) {
+      // Landscape sheet: images side by side (cols > rows)
       switch (n) {
+        case 2: cols = 2; rows = 1; break;    // 2 images side by side
+        case 4: cols = 2; rows = 2; break;
         case 6: cols = 3; rows = 2; break;
         case 8: cols = 4; rows = 2; break;
         case 9: cols = 3; rows = 3; break;
@@ -214,7 +204,10 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         default: cols = Math.ceil(Math.sqrt(n)); rows = Math.ceil(n / cols);
       }
     } else {
+      // Portrait sheet: images stacked vertically (rows > cols)
       switch (n) {
+        case 2: cols = 1; rows = 2; break;    // 2 images stacked above/below
+        case 4: cols = 2; rows = 2; break;
         case 6: cols = 2; rows = 3; break;
         case 8: cols = 2; rows = 4; break;
         case 9: cols = 3; rows = 3; break;
