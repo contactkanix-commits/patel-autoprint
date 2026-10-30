@@ -113,30 +113,21 @@ function sourceOrientation(pdfDoc) {
 }
 
 async function embedImage(doc, filePath) {
-  const sharp = require('sharp');
   const data = await fsPromises.readFile(filePath);
 
-  // Detect image format from file CONTENT, not extension.
-  let metadata;
+  // Try each format directly — more robust than detecting first.
+  try { return doc.embedJpg(data); } catch {}
+
+  try { return doc.embedPng(data); } catch {}
+
+  // WebP: convert to PNG via sharp
   try {
-    metadata = await sharp(data).metadata();
-  } catch (err) {
-    throw new Error(`Not a valid image file: ${err.message}`);
-  }
-
-  const format = (metadata.format || '').toLowerCase();
-
-  if (format === 'jpeg' || format === 'jpg') {
-    return doc.embedJpg(data);
-  }
-  if (format === 'png') {
-    return doc.embedPng(data);
-  }
-  if (format === 'webp') {
+    const sharp = require('sharp');
     const png = await sharp(data).png().toBuffer();
     return doc.embedPng(png);
-  }
-  throw new Error(`Unsupported image format: ${format || 'unknown'}`);
+  } catch {}
+
+  throw new Error(`Unsupported image format`);
 }
 
 async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fill') {

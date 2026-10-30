@@ -82,32 +82,22 @@ function imageGrid(nUp, orientation = 'landscape') {
 }
 
 async function embedImage(doc, filePath) {
-  const sharp = require('sharp');
   const data = await fsPromises.readFile(filePath);
 
-  // Detect image format from file CONTENT, not extension.
-  // The downloaded file may have a wrong/missing extension if classifyFile()
-  // misidentified it. Using sharp metadata ensures we embed correctly regardless.
-  let metadata;
+  // Try each format directly — more robust than detecting first.
+  // If the downloaded file has wrong/missing extension, we still embed it.
+  try { return doc.embedJpg(data); } catch {}
+
+  try { return doc.embedPng(data); } catch {}
+
+  // WebP: convert to PNG via sharp
   try {
-    metadata = await sharp(data).metadata();
-  } catch (err) {
-    throw new Error(`Not a valid image file: ${err.message}`);
-  }
-
-  const format = (metadata.format || '').toLowerCase();
-
-  if (format === 'jpeg' || format === 'jpg') {
-    return doc.embedJpg(data);
-  }
-  if (format === 'png') {
-    return doc.embedPng(data);
-  }
-  if (format === 'webp') {
+    const sharp = require('sharp');
     const png = await sharp(data).png().toBuffer();
     return doc.embedPng(png);
-  }
-  throw new Error(`Unsupported image format: ${format || 'unknown'}`);
+  } catch {}
+
+  throw new Error(`Unsupported image format`);
 }
 
 function paperDims(paperSize, orientation = 'auto') {
