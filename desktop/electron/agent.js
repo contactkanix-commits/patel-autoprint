@@ -127,7 +127,7 @@ async function embedImage(doc, filePath) {
     return doc.embedPng(png);
   } catch {}
 
-  throw new Error(`Unsupported image format`);
+  throw new Error(`embedImage failed: JPG/PNG/Sharp all rejected file: ${filePath}`);
 }
 
 async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fill') {
@@ -283,10 +283,10 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
             borderColor: rgb(1, 0, 0),
             borderWidth: 2,
           });
-          page.drawText(`IMAGE ERROR\n${info.label || 'unknown'}`, {
+          page.drawText(`IMAGE ERROR\n${info.label || 'unknown'}\n${info.error || ''}`, {
             x: col * cellW + margin + 5,
             y: sheetH - (rowFromTop + 1) * cellH + margin + 5,
-            size: 10,
+            size: 8,
             color: rgb(1, 0, 0),
           });
           continue;
