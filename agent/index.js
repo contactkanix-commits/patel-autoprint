@@ -183,17 +183,19 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // ============================================
   else {
     // --- 1. LAYOUT PARTITIONING ---
-    // Sheet orientation from orientation parameter ('auto' uses landscape sheet for
-    // multiple images so photos print side by side like Chrome/system print dialog)
+    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect:
+    // landscape images -> portrait sheet (stacked vertically)
+    // portrait images  -> landscape sheet (side by side)
+    // like Chrome / system print dialog)
     let sheetLandscape;
     if (orientation === 'portrait') {
       sheetLandscape = false;
     } else if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      // 'auto': multiple images -> landscape sheet (side by side)
-      //         single image -> portrait sheet (matches image orientation)
-      sheetLandscape = n > 1;
+      // 'auto': determine from dominant image aspect ratio
+      const landCount = infos.filter((i) => i.landscape).length;
+      sheetLandscape = landCount < infos.length - landCount;
     }
 
     // Grid based on sheet orientation + nUp
