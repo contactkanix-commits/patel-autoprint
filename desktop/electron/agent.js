@@ -296,38 +296,38 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   return outPath;
 }
 
-async function applyNUp(pdfDoc, pages, nUp, paperSize) {
+async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
   const newDoc = await PDFDocument.create();
-  const srcOrient = sourceOrientation(pdfDoc);
   const dims = paperDims(paperSize || 'A4');
 
-  // --- Layout Partitioning: grid based on source orientation ---
-  let cols, rows;
-  if (srcOrient === 'landscape') {
+  // --- Layout Partitioning: grid based on sheet orientation ---
+  let sheetLandscape;
+  if (orientation === 'landscape') {
+    sheetLandscape = true;
     switch (nUp) {
-      case 2: cols = 1; rows = 2; break;
+      case 2: cols = 2; rows = 1; break;
       case 4: cols = 2; rows = 2; break;
       case 6: cols = 3; rows = 2; break;
       case 8: cols = 4; rows = 2; break;
       case 9: cols = 3; rows = 3; break;
       case 16: cols = 4; rows = 4; break;
-      default: cols = 1; rows = 1;
+      default: cols = Math.ceil(Math.sqrt(nUp)); rows = Math.ceil(nUp / cols);
     }
   } else {
+    sheetLandscape = false;
     switch (nUp) {
-      case 2: cols = 2; rows = 1; break;
+      case 2: cols = 1; rows = 2; break;
       case 4: cols = 2; rows = 2; break;
       case 6: cols = 2; rows = 3; break;
       case 8: cols = 2; rows = 4; break;
       case 9: cols = 3; rows = 3; break;
       case 16: cols = 4; rows = 4; break;
-      default: cols = 1; rows = 1;
+      default: cols = Math.ceil(Math.sqrt(nUp)); rows = Math.ceil(nUp / cols);
     }
   }
 
-  const sheetLandscape = cols > rows;
-  const sheetW = sheetLandscape ? Math.max(dims.w, dims.h) : Math.min(dims.w, dims.h);
-  const sheetH = sheetLandscape ? Math.min(dims.w, dims.h) : Math.max(dims.w, dims.h);
+  const sheetW = sheetLandscape ? dims.h : dims.w;
+  const sheetH = sheetLandscape ? dims.w : dims.h;
 
   const margin = 0;
 
@@ -432,7 +432,7 @@ async function processPDF(filePath, pageRange, settings, jobId) {
 
   let processedDoc;
   if (pagesPerSheet > 1) {
-    processedDoc = await applyNUp(pdfDoc, pages, pagesPerSheet, settings.paperSize);
+    processedDoc = await applyNUp(pdfDoc, pages, pagesPerSheet, settings.paperSize, settings.orientation);
   } else {
     processedDoc = await extractPages(pdfDoc, pages);
   }
