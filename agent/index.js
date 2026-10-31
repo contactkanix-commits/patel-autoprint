@@ -201,14 +201,16 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // CASE 2: n >= 2 (n-up grid)
   // ============================================
   else {
-    // Sheet orientation from orientation parameter.
-    // 'auto' defaults to portrait sheet (standard paper orientation).
-    // Smart rotation inside cells handles fitting images.
+    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
     let sheetLandscape;
-    if (orientation === 'landscape') {
+    if (orientation === 'portrait') {
+      sheetLandscape = false;
+    } else if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      sheetLandscape = false;
+      // 'auto': portrait images → landscape sheet, landscape images → portrait sheet
+      const landCount = infos.filter((i) => i.landscape).length;
+      sheetLandscape = landCount < infos.length - landCount;
     }
 
     // Grid based on sheet orientation + nUp
@@ -312,6 +314,15 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
   let sheetLandscape;
   if (orientation === 'landscape') {
     sheetLandscape = true;
+  } else if (orientation === 'portrait') {
+    sheetLandscape = false;
+  } else {
+    // 'auto': portrait source → landscape sheet, landscape source → portrait sheet
+    sheetLandscape = srcOrient === 'portrait';
+  }
+
+  let cols, rows;
+  if (sheetLandscape) {
     switch (nUp) {
       case 2: cols = 2; rows = 1; break;
       case 4: cols = 2; rows = 2; break;
@@ -322,7 +333,6 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
       default: cols = Math.ceil(Math.sqrt(nUp)); rows = Math.ceil(nUp / cols);
     }
   } else {
-    sheetLandscape = false;
     switch (nUp) {
       case 2: cols = 1; rows = 2; break;
       case 4: cols = 2; rows = 2; break;

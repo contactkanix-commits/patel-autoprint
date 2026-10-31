@@ -201,11 +201,16 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       });
     }
   } else {
+    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
     let sheetLandscape;
-    if (orientation === 'landscape') {
+    if (orientation === 'portrait') {
+      sheetLandscape = false;
+    } else if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      sheetLandscape = false;
+      // 'auto': portrait images → landscape sheet, landscape images → portrait sheet
+      const landCount = infos.filter((i) => i.landscape).length;
+      sheetLandscape = landCount < infos.length - landCount;
     }
 
     let cols, rows;
@@ -298,12 +303,22 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
 
 async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
   const newDoc = await PDFDocument.create();
+  const srcOrient = sourceOrientation(pdfDoc);
   const dims = paperDims(paperSize || 'A4');
 
   // --- Layout Partitioning: grid based on sheet orientation ---
   let sheetLandscape;
   if (orientation === 'landscape') {
     sheetLandscape = true;
+  } else if (orientation === 'portrait') {
+    sheetLandscape = false;
+  } else {
+    // 'auto': portrait source → landscape sheet, landscape source → portrait sheet
+    sheetLandscape = srcOrient === 'portrait';
+  }
+
+  let cols, rows;
+  if (sheetLandscape) {
     switch (nUp) {
       case 2: cols = 2; rows = 1; break;
       case 4: cols = 2; rows = 2; break;
@@ -314,7 +329,6 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
       default: cols = Math.ceil(Math.sqrt(nUp)); rows = Math.ceil(nUp / cols);
     }
   } else {
-    sheetLandscape = false;
     switch (nUp) {
       case 2: cols = 1; rows = 2; break;
       case 4: cols = 2; rows = 2; break;

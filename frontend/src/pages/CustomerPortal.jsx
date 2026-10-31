@@ -659,12 +659,24 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const pageCount = file?.pageCount || 1;
   // Auto orientation: n-up image sheets print landscape (matches generator);
   // explicit portrait/landscape is respected; everything else stays portrait.
-  const portrait =
-    settings.orientation === 'landscape'
-      ? false
-      : settings.orientation === 'portrait'
-        ? true
-        : !((allImages || isImage) && pps > 1);
+  let sheetLandscape;
+  if (settings.orientation === 'landscape') {
+    sheetLandscape = true;
+  } else if (settings.orientation === 'portrait') {
+    sheetLandscape = false;
+  } else {
+    let sourceIsLandscape = false;
+    if (isImageFile(file)) {
+      sourceIsLandscape = file.orientation === 'landscape';
+      if (file.orientation === 'auto' && imageDims && imageUrls?.[0]) {
+        const dims = imageDims[imageUrls[0]];
+        if (dims) sourceIsLandscape = dims.w > dims.h;
+      }
+    } else {
+      sourceIsLandscape = file.orientation === 'landscape';
+    }
+    sheetLandscape = !sourceIsLandscape && pps > 1;
+  }
 
   const imageDims = useImageDims(allImages ? imageUrls : []);
 
@@ -676,11 +688,11 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const sheets = allImages
     ? Math.max(1, Math.ceil((totalImages || 1) / pps))
     : Math.max(1, Math.ceil(pageCount / pps));
-  const cols = gridColumnsFor(pps, portrait);
+  const cols = gridColumnsFor(pps, sheetLandscape);
   const totalPages = sheets * copies;
   const rows = Math.max(1, Math.ceil(cells / cols));
-  const pageW = portrait ? 210 : 297;
-  const pageH = portrait ? 297 : 210;
+  const pageW = sheetLandscape ? 297 : 210;
+  const pageH = sheetLandscape ? 210 : 297;
   const cellW = pageW / cols;
   const cellH = pageH / rows;
 
