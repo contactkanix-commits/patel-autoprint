@@ -201,15 +201,14 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // CASE 2: n >= 2 (n-up grid)
   // ============================================
   else {
-    // Sheet orientation from orientation parameter ('auto' uses landscape for
-    // multiple images so photos print side by side like Chrome/system print)
+    // Sheet orientation from orientation parameter.
+    // 'auto' defaults to portrait sheet (standard paper orientation).
+    // Smart rotation inside cells handles fitting images.
     let sheetLandscape;
-    if (orientation === 'portrait') {
-      sheetLandscape = false;
-    } else if (orientation === 'landscape') {
+    if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      sheetLandscape = n > 1;
+      sheetLandscape = false;
     }
 
     // Grid based on sheet orientation + nUp

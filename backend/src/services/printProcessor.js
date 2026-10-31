@@ -170,12 +170,10 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
     }
   } else {
     let sheetLandscape;
-    if (orientation === 'portrait') {
-      sheetLandscape = false;
-    } else if (orientation === 'landscape') {
+    if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      sheetLandscape = n > 1;
+      sheetLandscape = false;
     }
 
     let cols, rows;
