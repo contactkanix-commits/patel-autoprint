@@ -466,13 +466,14 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
     const boxH = cellH - margin * 2;
 
     for (let j = 0; j < nUp && i + j < pages.length; j++) {
+      const pageIndex = i + j;
       const col = j % cols;
       const rowFromTop = Math.floor(j / cols);
       const cellCenterX = col * cellW + cellW / 2;
       const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
       try {
-        const [embeddedPage] = await newDoc.embedPdf(pdfDoc, [pages[i + j]]);
+        const [embeddedPage] = await newDoc.embedPdf(pdfDoc, [pageIndex]);
         const pageW = embeddedPage.width;
         const pageH = embeddedPage.height;
         const pageIsLandscape = pageW > pageH;
@@ -515,7 +516,7 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
           });
         }
       } catch (err) {
-        console.error(`Failed to embed page ${pages[i + j]}:`, err);
+        console.error(`Failed to embed page ${pageIndex}:`, err);
       }
     }
   }
