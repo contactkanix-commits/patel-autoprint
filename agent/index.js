@@ -95,7 +95,13 @@ async function embedImage(doc, filePath) {
 
   // Try direct embed based on detected format
   if (isJpg) {
-    try { return doc.embedJpg(data); } catch (e) {
+    try {
+      const img = await doc.embedJpg(data);
+      // Phone photos carry an EXIF Orientation tag (pixels stored sideways).
+      // Remember it so layout math works with the DISPLAYED orientation.
+      img.exifOrientation = exifOrientation(data);
+      return img;
+    } catch (e) {
       throw new Error(`embedJpg failed: ${e.message}`);
     }
   }
@@ -142,6 +148,99 @@ function sourceOrientation(pdfDoc) {
   return first.getWidth() > first.getHeight() ? 'landscape' : 'portrait';
 }
 
+// ---------------------------------------------------------------------------
+// EXIF orientation support.
+// Phone/WhatsApp photos are very often stored with raw LANDSCAPE pixels plus
+// an EXIF Orientation tag saying "rotate 90° to display". Viewers (browsers)
+// apply the tag, but pdf-lib embeds raw pixels as-is — so photo layout math
+// must compensate, or every phone photo lays out as landscape and 2-up prints
+// stacked vertically instead of side by side.
+// ---------------------------------------------------------------------------
+function exifOrientation(data) {
+  try {
+    if (!data || data.length < 12 || data[0] !== 0xFF || data[1] !== 0xD8) return 1;
+    let i = 2;
+    while (i + 4 <= data.length) {
+      if (data[i] !== 0xFF) { i += 1; continue; }
+      const marker = data[i + 1];
+      if (marker === 0x01 || marker === 0xD8 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; }
+      if (marker === 0xDA || marker === 0xD9) break; // start of scan / EOI — EXIF comes before
+      const len = (data[i + 2] << 8) | data[i + 3];
+      if (len < 2 || i + 2 + len > data.length) break;
+      if (marker === 0xE1 && len >= 10) {
+        let sig = '';
+        for (let k = 0; k < 6; k++) sig += String.fromCharCode(data[i + 4 + k]);
+        if (sig === 'Exif\u0000\u0000') {
+          const t = i + 10; // TIFF header starts here
+          const little = data[t] === 0x49 && data[t + 1] === 0x49;
+          const u16 = (p) => little ? data[p] | (data[p + 1] << 8) : (data[p] << 8) | data[p + 1];
+          const u32 = (p) => little
+            ? (data[p] | (data[p + 1] << 8) | (data[p + 2] << 16) | (data[p + 3] << 24)) >>> 0
+            : ((data[p] << 24) | (data[p + 1] << 16) | (data[p + 2] << 8) | data[p + 3]) >>> 0;
+          const ifd0 = t + u32(t + 4);
+          const count = u16(ifd0);
+          for (let e = 0; e < count; e++) {
+            const entry = ifd0 + 2 + e * 12;
+            if (entry + 12 > data.length) break;
+            if (u16(entry) === 0x0112) {
+              // Orientation 1-8; mirrored variants are approximated (no flip
+              // support in pdf-lib drawImage) — rotation part still applied.
+              const v = u16(entry + 8);
+              return v >= 1 && v <= 8 ? v : 1;
+            }
+          }
+          break;
+        }
+      }
+      i += 2 + len;
+    }
+  } catch {}
+  return 1;
+}
+
+// Net CCW rotation (in degrees, multiple of 90) that renders raw pixels
+// upright for the given EXIF orientation value.
+function exifRotationDeg(orient) {
+  switch (orient) {
+    case 3:
+    case 4: return 180;
+    case 5:
+    case 6: return 270; // display = raw rotated 90° clockwise
+    case 7:
+    case 8: return 90;  // display = raw rotated 90° counter-clockwise
+    default: return 0;
+  }
+}
+
+// Display (as viewers show it) landscape flag for an embedded image,
+// honoring its EXIF Orientation tag.
+function displayLandscape(embedded) {
+  // Accepts either the embedded image ({width,height,exifOrientation}) or an
+  // info wrapper ({w,h,exif}) — both are used at call sites.
+  const orient = embedded.exifOrientation || embedded.exif || 1;
+  const rot = exifRotationDeg(orient);
+  const w = embedded.width ?? embedded.w;
+  const h = embedded.height ?? embedded.h;
+  const rawLandscape = w > h;
+  return rot % 180 === 90 ? !rawLandscape : rawLandscape;
+}
+
+// Draw an image scaled to (rawW, rawH) — pre-rotation pixel box times scale —
+// rotated rotDeg CCW (0/90/180/270), centered on (cx, cy).
+function drawOriented(page, image, cx, cy, rotDeg, rawW, rawH) {
+  const r = ((Math.round(rotDeg) % 360) + 360) % 360;
+  const opts = { width: rawW, height: rawH };
+  if (r === 90) {
+    page.drawImage(image, { ...opts, x: cx + rawH / 2, y: cy - rawW / 2, rotate: degrees(90) });
+  } else if (r === 180) {
+    page.drawImage(image, { ...opts, x: cx + rawW / 2, y: cy + rawH / 2, rotate: degrees(180) });
+  } else if (r === 270) {
+    page.drawImage(image, { ...opts, x: cx - rawH / 2, y: cy + rawW / 2, rotate: degrees(270) });
+  } else {
+    page.drawImage(image, { ...opts, x: cx - rawW / 2, y: cy - rawH / 2 });
+  }
+}
+
 async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation = 'auto', photoFit = 'fill') {
   const n = Math.max(1, parseInt(nUp) || 1);
   const newDoc = await PDFDocument.create();
@@ -159,6 +258,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         w: embedded.width,
         h: embedded.height,
         landscape: embedded.width > embedded.height,
+        exif: embedded.exifOrientation || 1,
       });
     } catch (err) {
       console.error(`Failed to embed image ${f.path}:`, err.message);
@@ -180,28 +280,28 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
   // ============================================
   if (n === 1) {
     for (const info of infos) {
-      const imgIsLandscape = info.w > info.h;
-      const pageW = imgIsLandscape ? baseDims.h : baseDims.w;
-      const pageH = imgIsLandscape ? baseDims.w : baseDims.h;
+      // Single image per sheet: page orientation matches the DISPLAYED image
+      // (EXIF-aware), so portrait phone photos print upright on portrait paper.
+      const exifRot = exifRotationDeg(info.exif || 1);
+      const dispLandscape = displayLandscape(info);
+      const pageW = dispLandscape ? baseDims.h : baseDims.w;
+      const pageH = dispLandscape ? baseDims.w : baseDims.h;
       const page = newDoc.addPage([pageW, pageH]);
 
-      const scale = Math.min((pageW - 4) / info.w, (pageH - 4) / info.h);
-      const drawW = info.w * scale;
-      const drawH = info.h * scale;
+      const bboxSwapped = exifRot % 180 === 90;
+      const scale = bboxSwapped
+        ? Math.min((pageW - 4) / info.h, (pageH - 4) / info.w)
+        : Math.min((pageW - 4) / info.w, (pageH - 4) / info.h);
 
-      page.drawImage(info.embedded, {
-        x: (pageW - drawW) / 2,
-        y: (pageH - drawH) / 2,
-        width: drawW,
-        height: drawH,
-      });
+      drawOriented(page, info.embedded, pageW / 2, pageH / 2, exifRot, info.w * scale, info.h * scale);
     }
   }
   // ============================================
   // CASE 2: n >= 2 (n-up grid)
   // ============================================
   else {
-    // Sheet orientation from orientation parameter ('auto' uses dominant image aspect)
+    // Sheet orientation from orientation parameter ('auto' uses dominant
+    // DISPLAY orientation of the images, EXIF-aware)
     let sheetLandscape;
     if (orientation === 'portrait') {
       sheetLandscape = false;
@@ -209,7 +309,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       sheetLandscape = true;
     } else {
       // 'auto': portrait images → landscape sheet, landscape images → portrait sheet
-      const landCount = infos.filter((i) => i.landscape).length;
+      const landCount = infos.filter((i) => displayLandscape(i)).length;
       sheetLandscape = landCount < infos.length - landCount;
     }
 
@@ -251,49 +351,34 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
       const boxH = cellH - margin * 2;
 
       for (let j = 0; j < chunk.length; j++) {
-        const { embedded, w: imgW, h: imgH } = chunk[j];
+        const info = chunk[j];
         const col = j % cols;
         const rowFromTop = Math.floor(j / cols);
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
         const slotIsLandscape = boxW > boxH;
-        const imgIsLandscape = imgW > imgH;
 
-        // Smart rotation: if image orientation doesn't match slot orientation, rotate 90°
-        const shouldRotate = slotIsLandscape !== imgIsLandscape;
+        // Net rotation = EXIF compensation (untangle stored rotation) + optional
+        // 90° twist when the cell's aspect mismatches the displayed image aspect.
+        const exifRot = exifRotationDeg(info.exif || 1);
+        const dispIsLandscape = displayLandscape(info);
+        const fitRot = dispIsLandscape !== slotIsLandscape ? 90 : 0;
+        const totalRot = (exifRot + fitRot) % 360;
 
-        // Strict No-Crop Scaling: Math.min only — preserve aspect ratio
-        let scaleW, scaleH;
-        if (shouldRotate) {
-          scaleW = boxW / imgH;
-          scaleH = boxH / imgW;
-        } else {
-          scaleW = boxW / imgW;
-          scaleH = boxH / imgH;
-        }
-        const scale = Math.min(scaleW, scaleH);
+        const scale = (totalRot === 90 || totalRot === 270)
+          ? Math.min(boxW / info.h, boxH / info.w)
+          : Math.min(boxW / info.w, boxH / info.h);
 
-        const drawW = imgW * scale;
-        const drawH = imgH * scale;
-
-        // Draw with built-in rotate (degrees(90) rotates CCW around bottom-left)
-        if (shouldRotate) {
-          page.drawImage(embedded, {
-            x: cellCenterX + drawH / 2,
-            y: cellCenterY - drawW / 2,
-            width: drawW,
-            height: drawH,
-            rotate: degrees(90),
-          });
-        } else {
-          page.drawImage(embedded, {
-            x: cellCenterX - drawW / 2,
-            y: cellCenterY - drawH / 2,
-            width: drawW,
-            height: drawH,
-          });
-        }
+        drawOriented(
+          page,
+          info.embedded,
+          cellCenterX,
+          cellCenterY,
+          totalRot,
+          info.w * scale,
+          info.h * scale
+        );
       }
     }
   }
@@ -308,6 +393,7 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
 
 async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
   const newDoc = await PDFDocument.create();
+  const srcOrient = sourceOrientation(pdfDoc);
   const dims = paperDims(paperSize || 'A4');
 
   // --- Layout Partitioning: grid based on sheet orientation ---

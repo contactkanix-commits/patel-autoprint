@@ -333,8 +333,13 @@ async function analyzeImage(filePath) {
   try {
     const sharp = require('sharp');
     const metadata = await sharp(filePath).metadata();
-    const width = metadata.width || 800;
-    const height = metadata.height || 600;
+    // EXIF-aware: phone photos are often stored with sideways raw pixels
+    // (metadata.orientation = EXIF tag). Report the DISPLAYED orientation,
+    // matching what viewers show and how the print agent lays them out.
+    const exifOrient = metadata.orientation || 1;
+    const dimsSwapped = exifOrient >= 5 && exifOrient <= 8;
+    const width = (dimsSwapped ? metadata.height : metadata.width) || 800;
+    const height = (dimsSwapped ? metadata.width : metadata.height) || 600;
     const isLandscape = width > height;
 
     return {

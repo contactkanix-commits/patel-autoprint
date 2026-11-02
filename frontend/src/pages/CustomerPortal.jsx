@@ -381,8 +381,8 @@ function gridColumnsFor(pps, portrait = true) {
   if (pps >= 9) return 3;
   if (pps === 8) return portrait ? 2 : 4;
   if (pps === 6) return portrait ? 2 : 3;
-  if (pps >= 4) return 2;
-  if (pps === 2) return 2;
+  if (pps === 4) return 2;
+  if (pps === 2) return portrait ? 1 : 2;
   return 1;
 }
 
@@ -657,28 +657,45 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const copies = settings.copies || 1;
   const colorMode = settings.colorMode || 'bw';
   const pageCount = file?.pageCount || 1;
-  // Auto orientation: n-up image sheets print landscape (matches generator);
-  // explicit portrait/landscape is respected; everything else stays portrait.
+
+  // Hook first — must not be read inside conditionals below.
+  // Browsers honour EXIF orientation, so naturalWidth/Height are the
+  // DISPLAYED dimensions — the same truth the print agent uses.
+  const imageDims = useImageDims((allImages || isImage) ? (imageUrls || []) : []);
+
+  // Sheet orientation mirrors the print agent exactly:
+  //   explicit portrait/landscape wins;
+  //   'auto' + images: portrait displays → landscape sheet (one left, one
+  //     right), landscape displays → portrait sheet (one above, one below);
+  //   'auto' + PDF: portrait pages → landscape sheet and vice versa;
+  //   pps = 1 images: the sheet matches the image itself.
   let sheetLandscape;
   if (settings.orientation === 'landscape') {
     sheetLandscape = true;
   } else if (settings.orientation === 'portrait') {
     sheetLandscape = false;
-  } else {
-    let sourceIsLandscape = false;
-    if (isImageFile(file)) {
-      sourceIsLandscape = file.orientation === 'landscape';
-      if (file.orientation === 'auto' && imageDims && imageUrls?.[0]) {
-        const dims = imageDims[imageUrls[0]];
-        if (dims) sourceIsLandscape = dims.w > dims.h;
+  } else if (allImages || isImage) {
+    const dimsArr = (imageUrls || []).map((u) => imageDims[u]).filter(Boolean);
+    if (dimsArr.length > 0) {
+      const land = dimsArr.filter((d) => d.w > d.h).length;
+      const portraitCount = dimsArr.length - land;
+      if (pps === 1) {
+        sheetLandscape = land >= portraitCount;
+      } else {
+        // Same tie-breaking as createContactSheet: portrait majority wins
+        sheetLandscape = land < portraitCount;
       }
     } else {
-      sourceIsLandscape = file.orientation === 'landscape';
+      // Dimensions not loaded yet — fall back to the analyzed orientation
+      const sourceIsLandscape = (file?.analysis?.orientation || 'portrait') === 'landscape';
+      sheetLandscape = pps === 1 ? sourceIsLandscape : !sourceIsLandscape;
     }
-    sheetLandscape = !sourceIsLandscape && pps > 1;
+  } else {
+    // PDF: analysis carries the real page-1 orientation (file.orientation
+    // stays 'auto' in the DB)
+    const sourceIsLandscape = (file?.analysis?.orientation || file?.orientation) === 'landscape';
+    sheetLandscape = pps > 1 ? !sourceIsLandscape : sourceIsLandscape;
   }
-
-  const imageDims = useImageDims(allImages ? imageUrls : []);
 
   const cells = allImages
     ? Math.max(1, pps)
@@ -688,7 +705,7 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
   const sheets = allImages
     ? Math.max(1, Math.ceil((totalImages || 1) / pps))
     : Math.max(1, Math.ceil(pageCount / pps));
-  const cols = gridColumnsFor(pps, sheetLandscape);
+  const cols = gridColumnsFor(pps, !sheetLandscape);
   const totalPages = sheets * copies;
   const rows = Math.max(1, Math.ceil(cells / cols));
   const pageW = sheetLandscape ? 297 : 210;
