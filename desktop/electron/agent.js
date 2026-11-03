@@ -887,10 +887,11 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
       } else {
         options.side = 'simplex';
       }
-      if (job.paperSize) options.paperSize = job.paperSize;
-      // Always announce the generated PDF's orientation to the printer: with
-      // "auto" the driver otherwise prints landscape sheets rotated/shrunk
-      // onto portrait paper (looks portrait with cut-off images).
+      // Do NOT force paperSize — the generated contact-sheet PDF already has
+      // the correct page dimensions (landscape A4 for portrait photos, etc.).
+      // Passing paper=A4 alongside orientation=landscape makes some Windows
+      // printer drivers ignore the orientation and print on portrait paper.
+      // Always announce the generated PDF's orientation to the printer.
       try {
         const pdoc = await PDFDocument.load(await fsPromises.readFile(printPath));
         const pg = pdoc.getPage(0);
@@ -902,7 +903,7 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
 
       this.log(
         'info',
-        `Sending to printer (${options.side}, ${options.copies || 1} copy, ${options.paperSize || 'A4'}, ${options.orientation || 'auto'})`
+        `Sending to printer (${options.side}, ${options.copies || 1} copy, ${options.orientation || 'auto'})`
       );
       await this.print.print(printPath, options);
       this.log('info', `Print sent for job ${job.id}`);
