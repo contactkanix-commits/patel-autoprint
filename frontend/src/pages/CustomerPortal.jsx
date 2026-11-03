@@ -677,6 +677,7 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
     : isImage
       ? 1
       : pps;
+  const portrait = !sheetLandscape;
   const sheets = allImages
     ? Math.max(1, Math.ceil((totalImages || 1) / pps))
     : Math.max(1, Math.ceil(pageCount / pps));
