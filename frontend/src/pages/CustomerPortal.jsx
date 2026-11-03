@@ -606,47 +606,22 @@ function useImageDims(urls) {
   return dims;
 }
 
-function PreviewImage({ url, imgW, imgH, cellW, cellH, rotate, colorMode, pps }) {
-  if (!rotate) {
-    return (
-      <img
-        src={url}
-        alt=""
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          padding: pps > 1 ? 2 : 8,
-          boxSizing: 'border-box',
-          filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
-        }}
-      />
-    );
-  }
-
-  const scale = Math.min(cellW / imgH, cellH / imgW);
+// Always letterbox (object-fit: contain) like the print agent: an image is
+// never rotated to fill its cell, so the preview and the paper agree.
+function PreviewImage({ url, imgW, imgH, cellW, cellH, colorMode, pps }) {
   return (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%) rotate(90deg)',
-        width: `${(imgW * scale) / cellW * 100}%`,
-        height: `${(imgH * scale) / cellH * 100}%`,
+    <img
+      src={url}
+      alt=""
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        padding: pps > 1 ? 2 : 8,
+        boxSizing: 'border-box',
+        filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
       }}
-    >
-      <img
-        src={url}
-        alt=""
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'fill',
-          filter: colorMode === 'bw' ? 'grayscale(1)' : 'none',
-        }}
-      />
-    </Box>
+    />
   );
 }
 
@@ -767,7 +742,6 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
                 imageUrls?.[i] ? (() => {
                   const url = imageUrls[i];
                   const dims = imageDims[url];
-                  const rotate = dims && dims.w !== dims.h && (dims.w > dims.h) !== (cellW > cellH);
                   return (
                     <PreviewImage
                       url={url}
@@ -775,7 +749,6 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
                       imgH={dims?.h}
                       cellW={cellW}
                       cellH={cellH}
-                      rotate={rotate}
                       colorMode={colorMode}
                       pps={pps}
                     />

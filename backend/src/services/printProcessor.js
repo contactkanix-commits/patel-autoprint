@@ -230,14 +230,11 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
         const cellCenterX = col * cellW + cellW / 2;
         const cellCenterY = sheetH - (rowFromTop + 1) * cellH + cellH / 2;
 
-        const slotIsLandscape = boxW > boxH;
-
-        // Net rotation = EXIF compensation (untangle stored rotation) + optional
-        // 90° twist when the cell's aspect mismatches the displayed image aspect.
-        const exifRot = exifRotationDeg(info.exif || 1);
-        const dispIsLandscape = displayLandscape(info);
-        const fitRot = dispIsLandscape !== slotIsLandscape ? 90 : 0;
-        const totalRot = (exifRot + fitRot) % 360;
+        // The only rotation applied is EXIF compensation, so the photo always
+        // sits upright inside its cell. Never "twist to fill": Windows/Chrome
+        // n-up keeps every page upright and letterboxes it instead of turning
+        // a portrait photo 90° sideways.
+        const totalRot = exifRotationDeg(info.exif || 1);
 
         const scale = (totalRot === 90 || totalRot === 270)
           ? Math.min(boxW / info.h, boxH / info.w)
@@ -394,9 +391,28 @@ async function extractPages(pdfDoc, pages) {
   return newDoc;
 }
 
+// Geometry of a source PDF page as a viewer displays it. pdf-lib's embedPdf
+// keeps only the MediaBox and ignores /Rotate, so a scanned or WhatsApp PDF
+// (sidebar stored + "rotate 90") would otherwise be laid out sideways on a
+// sheet chosen from the wrong orientation.
+function pdfPageDisplay(page) {
+  const raw = page.getRotation ? page.getRotation().angle : 0;
+  const angle = ((Math.round(raw / 90) * 90) % 360 + 360) % 360;
+  const width = page.getWidth();
+  const height = page.getHeight();
+  const swapped = angle === 90 || angle === 270;
+  return {
+    angle,
+    width,
+    height,
+    displayWidth: swapped ? height : width,
+    displayHeight: swapped ? width : height,
+  };
+}
+
 function sourceOrientation(pdfDoc) {
-  const first = pdfDoc.getPage(0);
-  return first.getWidth() > first.getHeight() ? 'landscape' : 'portrait';
+  const geo = pdfPageDisplay(pdfDoc.getPage(0));
+  return geo.displayWidth > geo.displayHeight ? 'landscape' : 'portrait';
 }
 
 // ---------------------------------------------------------------------------
@@ -568,38 +584,46 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
 
       try {
         const [embeddedPage] = await newDoc.embedPdf(pdfDoc, [pageIndex]);
-        const pageW = embeddedPage.width;
-        const pageH = embeddedPage.height;
-        const pageIsLandscape = pageW > pageH;
+        const geo = pdfPageDisplay(pdfDoc.getPage(pageIndex));
 
-        const slotIsLandscape = boxW > boxH;
-        let shouldRotate = false;
+        // Fit the page as it is DISPLAYED (MediaBox + /Rotate) into the cell.
+        // No 90° "twist" to fill the cell — Windows and Chrome keep every page
+        // upright and leave white space instead.
+        const scale = Math.min(
+          boxW / geo.displayWidth,
+          boxH / geo.displayHeight
+        );
 
-        if (slotIsLandscape !== pageIsLandscape) {
-          shouldRotate = true;
-        }
+        const drawW = geo.width * scale;
+        const drawH = geo.height * scale;
 
-        let scaleW, scaleH, drawW, drawH;
+        // Undo /Rotate so the page content lands upright in the cell.
+        // A /Rotate 90 page is displayed rotated 90° clockwise = 270° CCW.
+        const rot = (360 - geo.angle) % 360;
 
-        if (shouldRotate) {
-          scaleW = boxW / pageH;
-          scaleH = boxH / pageW;
-        } else {
-          scaleW = boxW / pageW;
-          scaleH = boxH / pageH;
-        }
-        const scale = Math.min(scaleW, scaleH);
-
-        drawW = pageW * scale;
-        drawH = pageH * scale;
-
-        if (shouldRotate) {
+        if (rot === 90) {
           page.drawPage(embeddedPage, {
             x: cellCenterX + drawH / 2,
             y: cellCenterY - drawW / 2,
             width: drawW,
             height: drawH,
             rotate: degrees(90),
+          });
+        } else if (rot === 180) {
+          page.drawPage(embeddedPage, {
+            x: cellCenterX + drawW / 2,
+            y: cellCenterY + drawH / 2,
+            width: drawW,
+            height: drawH,
+            rotate: degrees(180),
+          });
+        } else if (rot === 270) {
+          page.drawPage(embeddedPage, {
+            x: cellCenterX - drawH / 2,
+            y: cellCenterY + drawW / 2,
+            width: drawW,
+            height: drawH,
+            rotate: degrees(270),
           });
         } else {
           page.drawPage(embeddedPage, {
