@@ -864,20 +864,12 @@ async function processJob(config, job) {
     }
     // Do NOT force paperSize — the generated contact-sheet PDF already has
     // the correct page dimensions (landscape A4 for portrait photos, etc.).
-    // Passing paper=A4 alongside orientation=landscape makes some Windows
-    // printer drivers ignore the orientation and print on portrait paper.
-    // Always announce the generated PDF's orientation to the printer.
-    try {
-      const pdoc = await PDFDocument.load(await fsPromises.readFile(printPath));
-      const pg = pdoc.getPage(0);
-      options.orientation = pg.getWidth() > pg.getHeight() ? 'landscape' : 'portrait';
-    } catch {
-      if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
-    }
+    // Let the PDF's native page dimensions drive the printer — no conflicting
+    // paper/orientation overrides that Canon and other drivers may ignore.
     if (job.colorMode === 'bw') options.monochrome = true;
 
     console.log(`  Printer: ${job.assignedPrinter || 'default'}`);
-    console.log(`  Settings: ${options.side}, ${options.copies || 1} copy, ${options.orientation || 'auto'}`);
+    console.log(`  Settings: ${options.side}, ${options.copies || 1} copy`);
 
     await print.print(printPath, options);
     console.log('  Print sent successfully!');

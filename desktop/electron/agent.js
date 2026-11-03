@@ -891,19 +891,11 @@ apiRequest(method, urlPath, body, { binary = false } = {}) {
       // the correct page dimensions (landscape A4 for portrait photos, etc.).
       // Passing paper=A4 alongside orientation=landscape makes some Windows
       // printer drivers ignore the orientation and print on portrait paper.
-      // Always announce the generated PDF's orientation to the printer.
-      try {
-        const pdoc = await PDFDocument.load(await fsPromises.readFile(printPath));
-        const pg = pdoc.getPage(0);
-        options.orientation = pg.getWidth() > pg.getHeight() ? 'landscape' : 'portrait';
-      } catch {
-        if (job.orientation && job.orientation !== 'auto') options.orientation = job.orientation;
-      }
       if (job.colorMode === 'bw') options.monochrome = true;
 
       this.log(
         'info',
-        `Sending to printer (${options.side}, ${options.copies || 1} copy, ${options.orientation || 'auto'})`
+        `Sending to printer (${options.side}, ${options.copies || 1} copy)`
       );
       await this.print.print(printPath, options);
       this.log('info', `Print sent for job ${job.id}`);
