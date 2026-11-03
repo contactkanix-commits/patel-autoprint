@@ -327,9 +327,9 @@ async function createContactSheet(imageFiles, nUp, paperSize, jobId, orientation
     } else if (orientation === 'landscape') {
       sheetLandscape = true;
     } else {
-      // 'auto': landscape images → landscape sheet (side-by-side), portrait images → portrait sheet (stacked)
+      // 'auto': portrait images → landscape sheet (side-by-side), landscape images → portrait sheet (stacked)
       const landCount = infos.filter((i) => displayLandscape(i)).length;
-      sheetLandscape = landCount > infos.length - landCount;
+      sheetLandscape = landCount < infos.length - landCount;
     }
 
     let cols, rows;
@@ -417,8 +417,8 @@ async function applyNUp(pdfDoc, pages, nUp, paperSize, orientation = 'auto') {
   } else if (orientation === 'portrait') {
     sheetLandscape = false;
   } else {
-    // 'auto': landscape source → landscape sheet (side-by-side), portrait source → portrait sheet (stacked)
-    sheetLandscape = srcOrient === 'landscape';
+    // 'auto': portrait source → landscape sheet (side-by-side), landscape source → portrait sheet (stacked)
+    sheetLandscape = srcOrient === 'portrait';
   }
 
   let cols, rows;

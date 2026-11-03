@@ -657,8 +657,8 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
       if (pps === 1) {
         sheetLandscape = land >= portraitCount;
       } else {
-        // Landscape majority → landscape sheet (side-by-side), portrait majority → portrait sheet (stacked)
-        sheetLandscape = land > portraitCount;
+        // Portrait majority → landscape sheet (side-by-side), landscape majority → portrait sheet (stacked)
+        sheetLandscape = land < portraitCount;
       }
     } else {
       // Dimensions not loaded yet — fall back to the analyzed orientation
@@ -669,7 +669,7 @@ function PrintPreview({ file, settings, allImages, totalImages, imageUrls }) {
     // PDF: analysis carries the real page-1 orientation (file.orientation
     // stays 'auto' in the DB)
     const sourceIsLandscape = (file?.analysis?.orientation || file?.orientation) === 'landscape';
-    sheetLandscape = pps > 1 ? sourceIsLandscape : !sourceIsLandscape;
+    sheetLandscape = pps > 1 ? !sourceIsLandscape : sourceIsLandscape;
   }
 
   const cells = allImages
