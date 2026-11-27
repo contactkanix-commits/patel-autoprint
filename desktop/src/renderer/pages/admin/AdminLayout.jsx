@@ -22,6 +22,7 @@ import {
   WhatsApp as WhatsAppIcon,
   WarningAmber as WarningIcon,
   Block as BlockIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../AuthContext';
 import { useEffect, useState } from 'react';
@@ -34,6 +35,7 @@ const tabs = [
   { label: 'Pricing', icon: <AssessmentIcon />, path: '/admin/settings' },
   { label: 'Agent', icon: <AgentIcon />, path: '/admin/agent' },
   { label: 'WhatsApp', icon: <WhatsAppIcon />, path: '/admin/whatsapp' },
+  { label: 'Kisko', icon: <PeopleIcon />, path: '/admin/kisko' },
 ];
 
 function SubscriptionBanner({ subscription }) {

@@ -12,6 +12,7 @@ import PrintersPage from './pages/admin/PrintersPage';
 import SettingsPage from './pages/admin/SettingsPage';
 import AgentPage from './pages/admin/AgentPage';
 import WhatsAppPage from './pages/admin/WhatsAppPage';
+import KiskoPage from './pages/admin/KiskoPage';
 
 function RequireAuth({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="agent" element={<AgentPage />} />
         <Route path="whatsapp" element={<WhatsAppPage />} />
+        <Route path="kisko" element={<KiskoPage />} />
       </Route>
       <Route path="/" element={<Navigate to="/admin" replace />} />
       <Route path="*" element={<Navigate to="/admin" replace />} />

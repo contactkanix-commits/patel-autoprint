@@ -1717,6 +1717,7 @@ app.get('/api/admin/orders', authenticate, asyncHandler(async (req, res) => {
     where.OR = [
       { notes: { contains: search, mode: 'insensitive' } },
       { customer: { name: { contains: search, mode: 'insensitive' } } },
+      { customerCode: { contains: search, mode: 'insensitive' } },
       { token: isNaN(tokenMatch) ? undefined : tokenMatch },
     ].filter(Boolean);
   }
@@ -1825,6 +1826,124 @@ app.get('/api/admin/orders/:id/print-jobs', authenticate, asyncHandler(async (re
   });
 
   res.json({ success: true, data: printJobs });
+}));
+
+// ============================================
+// KISKO MODE - Quick 6-digit code printing
+// ============================================
+app.post('/api/admin/orders/kisko', authenticate, upload.array('files', 20), asyncHandler(async (req, res) => {
+  const shopId = req.user.shopId;
+  const { customerCode, copies, paperSize, colorMode, printStyle, pagesPerSheet, orientation, bwPrinterName, colorPrinterName } = req.body;
+
+  if (!customerCode || customerCode.length !== 6) {
+    throw new AppError('Customer code must be exactly 6 digits', 400, 'INVALID_CODE');
+  }
+
+  // Validate code is numeric
+  if (!/^\d{6}$/.test(customerCode)) {
+    throw new AppError('Customer code must be 6 numeric digits', 400, 'INVALID_CODE');
+  }
+
+  // Check code is unique within shop
+  const existing = await prisma.order.findFirst({
+    where: { shopId, customerCode },
+  });
+  if (existing) {
+    throw new AppError('Customer code already exists', 409, 'CODE_EXISTS');
+  }
+
+  if (!req.files || req.files.length === 0) {
+    throw new AppError('No files uploaded', 400, 'NO_FILES');
+  }
+
+  // Create order directly in PRINTING status (kisko mode skips approval)
+  const order = await prisma.order.create({
+    data: {
+      shopId,
+      customerCode,
+      status: 'PRINTING',
+      paymentStatus: 'PAID',
+      paymentMethod: 'cash',
+      totalPrice: 0,
+      notes: 'Kisko mode quick print',
+    },
+  });
+
+  const isColor = req.files.some((f) => {
+    const t = (f.settings?.colorMode || colorMode || 'bw').toLowerCase();
+    return t === 'color';
+  });
+
+  const imageFiles = req.files.filter((f) => isImageFileType(f));
+  const docFiles = req.files.filter((f) => !isImageFileType(f));
+
+  const printers = await prisma.printer.findMany({ where: { shopId } });
+  const targetPrinterName = bwPrinterName || colorPrinterName || printers.find(p => p.status === 'ONLINE')?.name || printers[0]?.name || null;
+
+  // Create order files with analysis
+  for (const file of req.files) {
+    const fileType = getFileType(file.originalname);
+    const analysis = await analyzeFileFast(file.path, fileType);
+
+    const fileSettings = {
+      paperSize: paperSize || 'A4',
+      orientation: orientation || 'auto',
+      colorMode: isImageFileType(f) ? (f.settings?.colorMode || 'bw') : (f.settings?.colorMode || 'bw'),
+      printStyle: printStyle || 'single',
+      copies: copies ? parseInt(copies) : (f.settings?.copies || 1),
+      pageRange: 'all',
+      pagesPerSheet: pagesPerSheet ? parseInt(pagesPerSheet) : (f.settings?.pagesPerSheet || 1),
+    };
+
+    await prisma.orderFile.create({
+      data: {
+        orderId: order.id,
+        originalName: file.originalname,
+        storagePath: file.path,
+        fileType,
+        size: file.size,
+        pageCount: analysis.pageCount,
+        colorPageCount: analysis.colorPageCount || 0,
+        orientation: 'auto',
+        settings: fileSettings,
+        shopId,
+      },
+    });
+  }
+
+  // Create print jobs
+  if (imageFiles.length > 0) {
+    await createContactSheetPrintJob(imageFiles, order, order.shopId, printers, targetPrinterName, targetPrinterName);
+  }
+  for (const file of docFiles) {
+    await createPrintJobsForFile(file, order.id, order.shopId, printers, targetPrinterName, targetPrinterName);
+  }
+
+  // Update order status to PRINTING (already set, but ensure print jobs are dispatched)
+  await prisma.order.update({
+    where: { id: order.id },
+    data: { status: 'PRINTING', printedAt: new Date() },
+  });
+
+  // Dispatch to agent
+  try {
+    await processAndDispatchOrder(order.id, prisma);
+  } catch (e) {
+    console.error(`Kisko dispatch failed:`, e.message);
+  }
+
+  const createdOrder = await prisma.order.findUnique({
+    where: { id: order.id },
+    include: { files: true, printJobs: true },
+  });
+
+  res.json({
+    success: true,
+    data: {
+      order: createdOrder,
+      message: 'Kisko mode print job created successfully',
+    },
+  });
 }));
 
 app.post('/api/admin/orders/:id/reprint', authenticate, asyncHandler(async (req, res) => {
