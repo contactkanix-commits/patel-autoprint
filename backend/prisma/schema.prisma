@@ -83,7 +83,7 @@ model Customer {
 model Order {
   id            String   @id @default(uuid())
   token         Int?
-  customerCode  String?   @unique // 6-digit quick code for kisko mode
+  customerCode  String?   // 6-digit quick code for kisko mode
   customerId    String?
   shopId        String
   status        String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, REJECTED
@@ -109,7 +109,7 @@ model Order {
   @@unique([shopId, token])
   @@index([shopId, status])
   @@index([shopId, token])
-  @@index([shopId, customerCode])
+  @@unique([shopId, customerCode])
   @@map("orders")
 }
 
