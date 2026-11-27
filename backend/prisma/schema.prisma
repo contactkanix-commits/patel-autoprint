@@ -17,7 +17,6 @@ model Shop {
   slug            String?  @unique
   agentKey        String?  @unique
   settings        Json?
-  tokenCounter    Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -82,7 +81,7 @@ model Customer {
 
 model Order {
   id            String   @id @default(uuid())
-  token         Int?
+  token         String?   // 6-digit customer code for kisko mode
   customerId    String?
   shopId        String
   status        String   @default("PENDING") // PENDING, APPROVED, PRINTING, COMPLETED, REJECTED

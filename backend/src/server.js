@@ -71,15 +71,16 @@ function getRazorpayInstance(shop) {
 }
 
 
-// Helper: get next token for a shop
-async function getNextToken(shopId) {
-  // Atomic increment - no race condition possible
-  const shop = await prisma.shop.update({
-    where: { id: shopId },
-    data: { tokenCounter: { increment: 1 } },
-    select: { tokenCounter: true },
-  });
-  return shop.tokenCounter;
+// Helper: generate a unique 6-digit customer code for kisko mode
+async function generateCustomerCode(shopId) {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 100000-999999
+    const existing = await prisma.order.findFirst({
+      where: { shopId, token: code },
+    });
+    if (!existing) return code;
+  }
+  throw new Error('Failed to generate unique customer code');
 }
 
 // Helper: load a shop's own pricing rates (fall back to defaults)
@@ -703,7 +704,7 @@ app.post('/api/upload', authenticate, upload.array('files', 20), asyncHandler(as
   }
 
   // Create order
-  const token = await getNextToken(shopId);
+  const token = await generateCustomerCode(shopId);
   const order = await prisma.order.create({
     data: {
       shopId,
@@ -1006,7 +1007,7 @@ app.post('/api/guest/upload', upload.array('files', 20), asyncHandler(async (req
     }
   }
 
-  const token = await getNextToken(shopId);
+  const token = await generateCustomerCode(shopId);
   const order = await prisma.order.create({
     data: {
       shopId,
@@ -1628,7 +1629,7 @@ app.post('/api/guest/whatsapp/:token/claim', asyncHandler(async (req, res) => {
     });
   }
 
-  const token = await getNextToken(shopId);
+  const token = await generateCustomerCode(shopId);
   // WhatsApp orders always PENDING - customer pays on portal
   const initialStatus = 'PENDING';
   const order = await prisma.order.create({
@@ -1713,11 +1714,10 @@ app.get('/api/admin/orders', authenticate, asyncHandler(async (req, res) => {
   const where = { shopId };
   if (status) where.status = status;
   if (search) {
-    const tokenMatch = parseInt(search);
     where.OR = [
       { notes: { contains: search, mode: 'insensitive' } },
       { customer: { name: { contains: search, mode: 'insensitive' } } },
-      { token: isNaN(tokenMatch) ? undefined : tokenMatch },
+      { token: { contains: search, mode: 'insensitive' } },
     ].filter(Boolean);
   }
 
@@ -1831,27 +1831,22 @@ app.get('/api/admin/orders/:id/print-jobs', authenticate, asyncHandler(async (re
 // KISKO MODE - Quick token lookup & print
 // ============================================
 
-// Look up an existing customer order by token number for kisko mode
+// Look up an existing customer order by 6-digit code for kisko mode
 app.get('/api/admin/orders/kisko/lookup', authenticate, asyncHandler(async (req, res) => {
   const { token } = req.query;
   const shopId = req.user.shopId;
 
-  if (!token) {
-    throw new AppError('Token number is required', 400, 'MISSING_TOKEN');
-  }
-
-  const tokenNum = parseInt(token);
-  if (isNaN(tokenNum)) {
-    throw new AppError('Token must be a number', 400, 'INVALID_TOKEN');
+  if (!token || !/^\d{6}$/.test(token)) {
+    throw new AppError('Please enter a valid 6-digit code', 400, 'INVALID_TOKEN');
   }
 
   const order = await prisma.order.findFirst({
-    where: { shopId, token: tokenNum },
+    where: { shopId, token },
     include: { files: true, printJobs: true, customer: true },
   });
 
   if (!order) {
-    throw new AppError('Order not found for this token', 404, 'ORDER_NOT_FOUND');
+    throw new AppError('Order not found for this code', 404, 'ORDER_NOT_FOUND');
   }
 
   res.json({ success: true, data: order });
@@ -1896,6 +1891,32 @@ app.post('/api/admin/orders/kisko/print/:id', authenticate, asyncHandler(async (
   });
 
   res.json({ success: true, data: updatedOrder, message: 'Print job sent to printer' });
+}));
+
+// Verify exit password for kisko mode
+app.post('/api/admin/kisko/verify-exit', authenticate, asyncHandler(async (req, res) => {
+  const { password } = req.body;
+  const shopId = req.user.shopId;
+
+  if (!password) {
+    throw new AppError('Password is required', 400, 'MISSING_PASSWORD');
+  }
+
+  // Check against shop owner's password or a designated kisko exit password
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.id },
+  });
+
+  if (!user) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) {
+    throw new AppError('Incorrect password', 401, 'INVALID_PASSWORD');
+  }
+
+  res.json({ success: true, message: 'Exit verified' });
 }));
 
 app.post('/api/admin/orders/:id/reprint', authenticate, asyncHandler(async (req, res) => {
