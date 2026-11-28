@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -14,11 +14,6 @@ import {
   MenuItem,
   IconButton,
   Divider,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -26,11 +21,13 @@ import {
   Code as CodeIcon,
   People as PeopleIcon,
   Lock as LockIcon,
-  ArrowBack as BackIcon,
-  FileCopy as FileIcon,
+  FileCopy as FileCopyIcon,
   Description as DocIcon,
   Image as ImageIcon,
   PowerOff as PowerIcon,
+  Close as CloseIcon,
+  CheckCircle as SuccessIcon,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import api from '../../api';
@@ -39,6 +36,87 @@ const isImageFile = (file) => {
   const t = (file.fileType || '').toLowerCase();
   return ['jpg', 'jpeg', 'png', 'webp'].includes(t);
 };
+
+const KiskoBackground = () => (
+  <Box
+    sx={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100vw',
+      height: '100vh',
+      zIndex: -1,
+      overflow: 'hidden',
+      opacity: 0.06,
+    }}
+  >
+    {/* Floating printer icons */}
+    <Box
+      sx={{
+        position: 'absolute',
+        top: '10%',
+        left: '5%',
+        fontSize: '120px',
+        color: 'primary.main',
+        animation: 'float 6s ease-in-out infinite',
+      }}
+      style={{ animation: 'float 6s ease-in-out infinite' }}
+    >
+      <PrintIcon />
+    </Box>
+    <Box
+      sx={{
+        position: 'absolute',
+        bottom: '15%',
+        right: '5%',
+        fontSize: '100px',
+        color: 'secondary.main',
+        animation: 'float 8s ease-in-out infinite reverse',
+      }}
+      style={{ animation: 'float 8s ease-in-out infinite reverse' }}
+    >
+      <FileCopyIcon />
+    </Box>
+    <Box
+      sx={{
+        position: 'absolute',
+        top: '40%',
+        left: '85%',
+        fontSize: '90px',
+        color: 'primary.light',
+        animation: 'float 5s ease-in-out infinite',
+      }}
+      style={{ animation: 'float 5s ease-in-out infinite' }}
+    >
+      <DocIcon />
+    </Box>
+    <Box
+      sx={{
+        position: 'absolute',
+        bottom: '30%',
+        left: '10%',
+        fontSize: '110px',
+        color: 'secondary.light',
+        animation: 'float 7s ease-in-out infinite reverse',
+      }}
+      style={{ animation: 'float 7s ease-in-out infinite reverse' }}
+    >
+      <ImageIcon />
+    </Box>
+    <style global>{`
+      @keyframes float {
+        0% { transform: translateY(0) rotate(0deg); }
+        50% { transform: translateY(-20px) rotate(2deg); }
+        100% { transform: translateY(0) rotate(0deg); }
+      }
+      @keyframes floatReverse {
+        0% { transform: translateY(0) rotate(0deg); }
+        50% { transform: translateY(20px) rotate(-2deg); }
+        100% { transform: translateY(0) rotate(0deg); }
+      }
+    `}</style>
+  </Box>
+);
 
 export default function KiskoPage() {
   const [screen, setScreen] = useState('entry'); // 'entry' | 'order' | 'exit'
@@ -50,6 +128,7 @@ export default function KiskoPage() {
   const [printers, setPrinters] = useState([]);
   const [bwPrinter, setBwPrinter] = useState('');
   const [colorPrinter, setColorPrinter] = useState('');
+  const [lookupError, setLookupError] = useState(null);
 
   const fetchPrinters = async () => {
     try {
@@ -67,6 +146,10 @@ export default function KiskoPage() {
     }
   };
 
+  useEffect(() => {
+    fetchPrinters();
+  }, []);
+
   const handleLookup = async (e) => {
     e.preventDefault();
     if (!code || !/^\d{6}$/.test(code)) {
@@ -74,14 +157,18 @@ export default function KiskoPage() {
       return;
     }
     setLookupLoading(true);
+    setLookupError(null);
     try {
       const result = await api.get(`/admin/orders/kisko/lookup?token=${code}`);
-      if (result.success) {
+      if (result.success && result.data.order) {
         setOrder(result.data.order);
         setScreen('order');
+      } else {
+        toast.error('Order not found for this code');
       }
     } catch (err) {
-      toast.error(err.message || 'Order not found');
+      setLookupError(err.message || 'Order not found');
+      toast.error(err.message || 'Order not found for this code');
     } finally {
       setLookupLoading(false);
     }
@@ -100,6 +187,7 @@ export default function KiskoPage() {
         setScreen('entry');
         setCode('');
         setOrder(null);
+        setLookupError(null);
       }
     } catch (err) {
       toast.error(err.message || 'Failed to send print job');
@@ -114,12 +202,14 @@ export default function KiskoPage() {
       toast.error('Please enter password to exit');
       return;
     }
-    // Verify password via backend
     setPrintLoading(true);
     api.post('/api/admin/kisko/verify-exit', { password: exitPassword })
       .then(() => {
         toast.success('Exited kisko mode');
-        window.location.href = '/admin/orders';
+        setScreen('entry');
+        setExitPassword('');
+        setOrder(null);
+        setCode('');
       })
       .catch((err) => {
         toast.error(err.message || 'Incorrect password');
@@ -129,9 +219,10 @@ export default function KiskoPage() {
       });
   };
 
-  const isImageFile = (file) => {
-    const t = (file.fileType || '').toLowerCase();
-    return ['jpg', 'jpeg', 'png', 'webp'].includes(t);
+  const cancelExit = () => {
+    setScreen('entry');
+    setExitPassword('');
+    setPrintLoading(false);
   };
 
   return (
@@ -149,6 +240,8 @@ export default function KiskoPage() {
         overflow: 'hidden',
       }}
     >
+      <KiskoBackground />
+
       {/* Header */}
       <Box
         sx={{
@@ -157,8 +250,9 @@ export default function KiskoPage() {
           justifyContent: 'space-between',
           px: 3,
           py: 2,
-          bgcolor: 'primary.main',
+          bgcolor: 'rgba(0, 0, 0, 0.3)',
           color: 'white',
+          backdropFilter: 'blur(4px)',
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -173,15 +267,20 @@ export default function KiskoPage() {
           </Typography>
           <IconButton
             onClick={(e) => {
+              e.preventDefault();
               if (screen === 'entry') {
                 window.location.href = '/admin/orders';
+              } else if (screen === 'exit') {
+                cancelExit();
               } else {
-                setScreen('exit');
+                setScreen('entry');
+                setOrder(null);
+                setCode('');
               }
             }}
             sx={{ color: 'white' }}
           >
-            {screen === 'entry' ? <PowerIcon fontSize="small" /> : <LockIcon fontSize="small" />}
+            {screen === 'exit' ? <CloseIcon fontSize="small" /> : <PowerIcon fontSize="small" />}
           </IconButton>
         </Box>
       </Box>
@@ -194,11 +293,12 @@ export default function KiskoPage() {
           alignItems: 'center',
           justifyContent: 'center',
           p: 3,
+          overflowY: 'auto',
         }}
       >
         {/* SCREEN 1: Enter Code */}
         {screen === 'entry' && (
-          <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 450, width: '100%', boxShadow: 10 }}>
+          <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 450, width: '100%', boxShadow: 10, elevation: 10 }}>
             <Box sx={{ textAlign: 'center', mb: 4 }}>
               <PeopleIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={700} color="text.primary">
@@ -208,6 +308,12 @@ export default function KiskoPage() {
                 Enter the 6-digit code from the customer's order receipt
               </Typography>
             </Box>
+
+            {lookupError && (
+              <Alert severity="error" icon={<ErrorIcon />} sx={{ mb: 2 }}>
+                {lookupError}
+              </Alert>
+            )}
 
             <form onSubmit={handleLookup} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <TextField
@@ -219,7 +325,7 @@ export default function KiskoPage() {
                 InputProps={{
                   startAdornment: <IconButton><CodeIcon fontSize="small" /></IconButton>,
                   maxLength: 6,
-                  inputProps: { style: { textAlign: 'center', fontSize: 24, letterSpacing: '8px' } },
+                  inputProps: { style: { textAlign: 'center', fontSize: 28, letterSpacing: '10px', fontWeight: 700 } },
                 }}
                 helperText="6 digits only"
                 required
@@ -249,7 +355,7 @@ export default function KiskoPage() {
 
         {/* SCREEN 2: Order Details + Print */}
         {screen === 'order' && order && (
-          <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 700, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 10 }}>
+          <Paper sx={{ p: 3, borderRadius: 3, maxWidth: 800, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 10, elevation: 10 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
               <Typography variant="h6" fontWeight={700}>
                 Order #{order.token}
@@ -273,31 +379,34 @@ export default function KiskoPage() {
             </Box>
 
             <Typography variant="subtitle2" fontWeight={600} color="text.secondary" sx={{ mb: 1 }}>
-              Files to Print ({order.files?.length || 0})
+              Files to Print ({Array.isArray(order.files) ? order.files.length : 0})
             </Typography>
             <Box sx={{ mb: 3, border: 1, borderColor: 'divider', borderRadius: 1, p: 1, bgcolor: 'background.paper' }}>
-              {order.files?.map((file, i) => (
-                <Box key={file.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, borderBottom: '1px solid', borderColor: 'divider.light' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-                    {isImageFile(file) ? <ImageIcon sx={{ fontSize: 20, color: 'primary.main' }} /> : <DocIcon sx={{ fontSize: 20, color: 'text.secondary' }} />}
-                    <Typography variant="body2" sx={{ fontWeight: 500, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {file.originalName}
-                    </Typography>
+              {Array.isArray(order.files) && order.files.length > 0 ? (
+                order.files.map((file, i) => (
+                  <Box key={file.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, borderBottom: '1px solid', borderColor: 'divider.light' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+                      {isImageFile(file) ? <ImageIcon sx={{ fontSize: 20, color: 'primary.main' }} /> : <DocIcon sx={{ fontSize: 20, color: 'text.secondary' }} />}
+                      <Typography variant="body2" sx={{ fontWeight: 500, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {file.originalName}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, minWidth: 220 }}>
+                      <Chip label={file.fileType?.toUpperCase()} size="small" />
+                      <Chip label={`${file.settings?.paperSize || 'A4'}`} size="small" color="default" />
+                      <Chip label={`${file.settings?.orientation || 'auto'}`} size="small" color="default" />
+                      <Chip label={`${file.settings?.colorMode || 'bw'}`} size="small" />
+                      <Chip label={`${file.settings?.pagesPerSheet || 1}-up`} size="small" />
+                      <Chip label={`${file.settings?.copies || 1}x`} size="small" />
+                    </Box>
                   </Box>
-                  <Box sx={{ display: 'flex', gap: 1, minWidth: 200 }}>
-                    <Chip label={file.fileType?.toUpperCase()} size="small" />
-                    <Chip label={`${file.settings?.paperSize || 'A4'}`} size="small" color="default" />
-                    <Chip label={`${file.settings?.orientation || 'auto'}`} size="small" color="default" />
-                    <Chip label={`${file.settings?.colorMode || 'bw'}`} size="small" />
-                    <Chip label={`${file.settings?.pagesPerSheet || 1}-up`} size="small" />
-                    <Chip label={`${file.settings?.copies || 1}x`} size="small" />
-                  </Box>
+                ))
+              ) : (
+                <Box sx={{ p: 2, textAlign: 'center' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    No files in this order
+                  </Typography>
                 </Box>
-              ))}
-              {!order.files || order.files.length === 0 && (
-                <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', my: 1 }}>
-                  No files in this order
-                </Typography>
               )}
             </Box>
 
@@ -357,7 +466,7 @@ export default function KiskoPage() {
 
         {/* SCREEN 3: Exit Password */}
         {screen === 'exit' && (
-          <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 450, width: '100%', boxShadow: 10 }}>
+          <Paper sx={{ p: 4, borderRadius: 3, maxWidth: 450, width: '100%', boxShadow: 10, elevation: 10 }}>
             <Box sx={{ textAlign: 'center', mb: 4 }}>
               <LockIcon sx={{ fontSize: 48, color: 'error.main', mb: 2 }} />
               <Typography variant="h5" fontWeight={700} color="text.primary">
@@ -382,25 +491,42 @@ export default function KiskoPage() {
                 required
                 autoFocus
               />
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                fullWidth
-                color="error"
-                startIcon={<PowerIcon />}
-                disabled={printLoading || !exitPassword}
-                sx={{
-                  mt: 1,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  py: 1.5,
-                  '&:disabled': { opacity: 0.5 },
-                }}
-              >
-                {printLoading ? <CircularProgress size={20} /> : null}
-                Exit Kisko Mode
-              </Button>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  size="large"
+                  fullWidth
+                  color="error"
+                  startIcon={<PowerIcon />}
+                  disabled={printLoading || !exitPassword}
+                  sx={{
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    py: 1.5,
+                    '&:disabled': { opacity: 0.5 },
+                    flex: 1,
+                  }}
+                >
+                  {printLoading ? <CircularProgress size={20} /> : null}
+                  Exit Kisko Mode
+                </Button>
+                <Button
+                  onClick={cancelExit}
+                  variant="outlined"
+                  size="large"
+                  fullWidth
+                  startIcon={<CloseIcon />}
+                  sx={{
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    py: 1.5,
+                    flex: 1,
+                  }}
+                >
+                  Cancel
+                </Button>
+              </Box>
             </form>
           </Paper>
         )}
@@ -414,8 +540,9 @@ export default function KiskoPage() {
           justifyContent: 'center',
           px: 3,
           py: 1,
-          bgcolor: 'grey.100',
+          bgcolor: 'rgba(0, 0, 0, 0.3)',
           color: 'text.secondary',
+          backdropFilter: 'blur(4px)',
         }}
       >
         <Typography variant="caption">

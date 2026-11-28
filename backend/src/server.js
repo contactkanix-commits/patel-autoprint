@@ -1902,7 +1902,14 @@ app.post('/api/admin/kisko/verify-exit', authenticate, asyncHandler(async (req, 
     throw new AppError('Password is required', 400, 'MISSING_PASSWORD');
   }
 
-  // Check against shop owner's password or a designated kisko exit password
+  // Check against designated kisko exit password (env var) first
+  const exitPassword = process.env.KISKO_EXIT_PASSWORD;
+  if (exitPassword && password === exitPassword) {
+    res.json({ success: true, message: 'Exit verified' });
+    return;
+  }
+
+  // Then check against the logged-in user's password
   const user = await prisma.user.findUnique({
     where: { id: req.user.id },
   });
