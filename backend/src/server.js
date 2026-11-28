@@ -1843,17 +1843,25 @@ app.get('/api/admin/orders/kisko/lookup', authenticate, asyncHandler(async (req,
   // Strip # prefix if customer typed it (e.g. #123456 -> 123456)
   const cleanCode = token.replace(/^#/, '');
 
-  if (!/^\d{6}$/.test(cleanCode)) {
-    throw new AppError('Please enter a valid 6-digit code', 400, 'INVALID_CODE');
+  // Try exact 6-digit code match first
+  let order = null;
+  if (/^\d{6}$/.test(cleanCode)) {
+    order = await prisma.order.findFirst({
+      where: { shopId, token: cleanCode },
+      include: { files: true, printJobs: true, customer: true },
+    });
   }
 
-  const order = await prisma.order.findFirst({
-    where: { shopId, token: cleanCode },
-    include: { files: true, printJobs: true, customer: true },
-  });
+  // Fallback: try matching old short token (e.g. "1", "2", etc.)
+  if (!order && /^\d{1,5}$/.test(cleanCode)) {
+    order = await prisma.order.findFirst({
+      where: { shopId, token: cleanCode },
+      include: { files: true, printJobs: true, customer: true },
+    });
+  }
 
   if (!order) {
-    throw new AppError('Order not found for this code', 404, 'ORDER_NOT_FOUND');
+    throw new AppError('Order not found for this code. Create a new order through the customer portal to get a 6-digit code.', 404, 'ORDER_NOT_FOUND');
   }
 
   res.json({ success: true, data: order });

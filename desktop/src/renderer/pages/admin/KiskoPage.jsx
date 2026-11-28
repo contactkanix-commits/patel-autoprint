@@ -152,8 +152,8 @@ export default function KiskoPage() {
 
   const handleLookup = async (e) => {
     e.preventDefault();
-    if (!code || !/^\d{6}$/.test(code)) {
-      toast.error('Please enter a valid 6-digit code');
+    if (!code || !/^\d{1,6}$/.test(code)) {
+      toast.error('Please enter a valid code (6 digits)');
       return;
     }
     setLookupLoading(true);
