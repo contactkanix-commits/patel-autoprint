@@ -47,7 +47,7 @@ const KiskoBackground = () => (
       height: '100vh',
       zIndex: -1,
       overflow: 'hidden',
-      opacity: 0.06,
+      opacity: 0.15,
     }}
   >
     {/* Floating printer icons */}
@@ -56,7 +56,7 @@ const KiskoBackground = () => (
         position: 'absolute',
         top: '10%',
         left: '5%',
-        fontSize: '120px',
+        fontSize: '140px',
         color: 'primary.main',
         animation: 'float 6s ease-in-out infinite',
       }}
@@ -69,7 +69,7 @@ const KiskoBackground = () => (
         position: 'absolute',
         bottom: '15%',
         right: '5%',
-        fontSize: '100px',
+        fontSize: '120px',
         color: 'secondary.main',
         animation: 'float 8s ease-in-out infinite reverse',
       }}
@@ -80,9 +80,9 @@ const KiskoBackground = () => (
     <Box
       sx={{
         position: 'absolute',
-        top: '40%',
+        top: '35%',
         left: '85%',
-        fontSize: '90px',
+        fontSize: '110px',
         color: 'primary.light',
         animation: 'float 5s ease-in-out infinite',
       }}
@@ -93,9 +93,9 @@ const KiskoBackground = () => (
     <Box
       sx={{
         position: 'absolute',
-        bottom: '30%',
+        bottom: '25%',
         left: '10%',
-        fontSize: '110px',
+        fontSize: '130px',
         color: 'secondary.light',
         animation: 'float 7s ease-in-out infinite reverse',
       }}
@@ -106,12 +106,12 @@ const KiskoBackground = () => (
     <style global>{`
       @keyframes float {
         0% { transform: translateY(0) rotate(0deg); }
-        50% { transform: translateY(-20px) rotate(2deg); }
+        50% { transform: translateY(-25px) rotate(3deg); }
         100% { transform: translateY(0) rotate(0deg); }
       }
       @keyframes floatReverse {
         0% { transform: translateY(0) rotate(0deg); }
-        50% { transform: translateY(20px) rotate(-2deg); }
+        50% { transform: translateY(25px) rotate(-3deg); }
         100% { transform: translateY(0) rotate(0deg); }
       }
     `}</style>
@@ -265,22 +265,16 @@ export default function KiskoPage() {
           <Typography variant="caption">
             Patel AutoPrint • Kiosk
           </Typography>
+          {/* Always show exit password screen when clicking power/disconnect */}
           <IconButton
             onClick={(e) => {
               e.preventDefault();
-              if (screen === 'entry') {
-                window.location.href = '/admin/orders';
-              } else if (screen === 'exit') {
-                cancelExit();
-              } else {
-                setScreen('entry');
-                setOrder(null);
-                setCode('');
-              }
+              setScreen('exit');
+              setExitPassword('');
             }}
             sx={{ color: 'white' }}
           >
-            {screen === 'exit' ? <CloseIcon fontSize="small" /> : <PowerIcon fontSize="small" />}
+            <LockIcon fontSize="small" />
           </IconButton>
         </Box>
       </Box>
@@ -321,13 +315,16 @@ export default function KiskoPage() {
                 size="large"
                 label="6-Digit Code"
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/^#/, '').replace(/\D/g, '').slice(0, 6);
+                  setCode(val);
+                }}
                 InputProps={{
                   startAdornment: <IconButton><CodeIcon fontSize="small" /></IconButton>,
                   maxLength: 6,
                   inputProps: { style: { textAlign: 'center', fontSize: 28, letterSpacing: '10px', fontWeight: 700 } },
                 }}
-                helperText="6 digits only"
+                helperText="6 digits only (e.g. 123456)"
                 required
                 autoFocus
               />

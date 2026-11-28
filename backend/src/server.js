@@ -1836,12 +1836,19 @@ app.get('/api/admin/orders/kisko/lookup', authenticate, asyncHandler(async (req,
   const { token } = req.query;
   const shopId = req.user.shopId;
 
-  if (!token || !/^\d{6}$/.test(token)) {
-    throw new AppError('Please enter a valid 6-digit code', 400, 'INVALID_TOKEN');
+  if (!token) {
+    throw new AppError('Code is required', 400, 'MISSING_CODE');
+  }
+
+  // Strip # prefix if customer typed it (e.g. #123456 -> 123456)
+  const cleanCode = token.replace(/^#/, '');
+
+  if (!/^\d{6}$/.test(cleanCode)) {
+    throw new AppError('Please enter a valid 6-digit code', 400, 'INVALID_CODE');
   }
 
   const order = await prisma.order.findFirst({
-    where: { shopId, token },
+    where: { shopId, token: cleanCode },
     include: { files: true, printJobs: true, customer: true },
   });
 
